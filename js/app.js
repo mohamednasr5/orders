@@ -41,9 +41,30 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Login Action
-    document.getElementById('btn-google-login').addEventListener('click', () => {
-        signInWithRedirect, getRedirectResult(auth, provider).catch(error => showToast(error.message, 'error'));
+    // 1. Handle Redirect Result (Runs on page load after returning from Google)
+    getRedirectResult(auth).then((result) => {
+        if (result && result.user) {
+            // User successfully logged in via redirect
+            console.log("Logged in:", result.user);
+        }
+    }).catch((error) => {
+        showToast("خطأ في تسجيل الدخول: " + error.message, 'error');
+    });
+
+    // 2. Login Action (Triggers the redirect)
+    document.getElementById('btn-google-login').addEventListener('click', (e) => {
+        e.preventDefault();
+        const btn = e.currentTarget;
+        btn.innerHTML = `<div class="spinner" style="width: 20px; height: 20px; border-width: 3px; border-top-color: white; margin-left: 10px; margin-bottom: 0; display: inline-block; vertical-align: middle;"></div> <span data-i18n="loading">جاري التحويل...</span>`;
+        btn.style.opacity = '0.7';
+        btn.style.pointerEvents = 'none';
+        
+        signInWithRedirect(auth, provider).catch(error => {
+            showToast(error.message, 'error');
+            btn.innerHTML = `<i class='bx bxl-google'></i> <span data-i18n="loginGoogle">تسجيل الدخول باستخدام Google</span>`;
+            btn.style.opacity = '1';
+            btn.style.pointerEvents = 'auto';
+        });
     });
 
     // Logout Action
