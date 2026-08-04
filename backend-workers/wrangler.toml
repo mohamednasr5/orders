@@ -1,3 +1,12 @@
-name = "saas-oms-api"
+name = "orders-backend"
 main = "src/index.js"
 compatibility_date = "2023-10-30"
+
+# Based on provided screenshot and bindings
+[[r2_buckets]]
+binding = "orders"
+bucket_name = "orders"
+
+[vars]
+FIREBASE_PROJECT_ID = "orders-8f568"
+PUBLIC_R2_URL = "https://pub-edc4c80125a74d37b7f5fbdb576a4ecf.r2.dev"
