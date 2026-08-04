@@ -78,7 +78,7 @@ export function renderProducts(container) {
         if(data) {
             currentProducts = Object.entries(data).map(([key, val]) => ({...val, _key: key}));
             document.getElementById('products-count').innerText = currentProducts.length;
-            renderProducts(currentProducts);
+            displayProductList(currentProducts);
         } else {
             currentProducts = [];
             document.getElementById('products-count').innerText = '0';
@@ -87,7 +87,11 @@ export function renderProducts(container) {
     });
 }
 
-function renderProducts(products) {
+/**
+ * Display products in Grid and Table views
+ * @param {Array} products - Array of product objects
+ */
+function displayProductList(products) {
     const gridView = document.getElementById('products-grid-view');
     const tableView = document.getElementById('products-table-view');
     const tbody = document.getElementById('products-body');
@@ -215,7 +219,7 @@ window.filterProducts = function() {
         );
     }
     
-    renderProducts(filtered);
+    displayProductList(filtered);
 };
 
 window.setProductView = function(view) {
