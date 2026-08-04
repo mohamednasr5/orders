@@ -1,7 +1,7 @@
 
 import { setLanguage, currentLang, t } from './core/i18n.js';
 import { initTheme } from './core/theme.js';
-import { auth, provider, signInWithPopup, signOut, onAuthStateChanged, db, ref, set } from './core/firebase-config.js';
+import { auth, provider, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged, db, ref, set } from './core/firebase-config.js';
 import { showToast } from './components/ui.js';
 
 // Views
@@ -43,7 +43,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Login Action
     document.getElementById('btn-google-login').addEventListener('click', () => {
-        signInWithPopup(auth, provider).catch(error => showToast(error.message, 'error'));
+        signInWithRedirect, getRedirectResult(auth, provider).catch(error => showToast(error.message, 'error'));
     });
 
     // Logout Action
