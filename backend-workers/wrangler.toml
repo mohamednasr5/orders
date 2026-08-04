@@ -1,12 +1,44 @@
-name = "orders-backend"
+name = "saas-oms-backend"
 main = "src/index.js"
 compatibility_date = "2023-10-30"
+compatibility_flags = ["nodejs_compat"]
 
-# Based on provided screenshot and bindings
+# ============================================
+# R2 Bucket Configuration
+# ============================================
 [[r2_buckets]]
 binding = "orders"
 bucket_name = "orders"
 
+# ============================================
+# Environment Variables
+# ============================================
 [vars]
 FIREBASE_PROJECT_ID = "orders-8f568"
 PUBLIC_R2_URL = "https://pub-edc4c80125a74d37b7f5fbdb576a4ecf.r2.dev"
+ENVIRONMENT = "production"
+APP_VERSION = "2.0.0"
+
+# ============================================
+# Development Environment (Optional)
+# ============================================
+[env.development]
+name = "saas-oms-backend-dev"
+
+[env.development.vars]
+FIREBASE_PROJECT_ID = "orders-8f568"
+PUBLIC_R2_URL = "https://pub-edc4c80125a74d37b7f5fbdb576a4ecf.r2.dev"
+ENVIRONMENT = "development"
+
+# ============================================
+# Production Deployment Settings
+# ============================================
+[deployment]
+browserslist = "> 0.25%, not dead"
+
+# ============================================
+# Routes (if using custom domain)
+# ============================================
+# routes = [
+#   { pattern = "api.yourdomain.com/*", custom_domain = true }
+# ]

@@ -1,0 +1,97 @@
+{
+  "rules": {
+    // ============================================
+    // Users - Authenticated users can read/write their own data
+    // ============================================
+    "users": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "$uid === auth.uid",
+        ".validate": "newData.hasChildren(['displayName', 'email', 'createdAt'])"
+      }
+    },
+
+    // ============================================
+    // Orders - All authenticated users can read/write
+    // ============================================
+    "orders": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$orderId": {
+        ".validate": "newData.hasChildren(['id', 'customer', 'amount', 'status'])",
+        ".write": "auth != null && (!data.exists() || data.child('createdBy').val() === auth.uid)",
+        "status": {
+          ".validate": ["pending", "processing", "shipped", "delivered", "cancelled"].contains(newData.val())
+        },
+        "amount": {
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        }
+      }
+    },
+
+    // ============================================
+    // Products - All authenticated users
+    // ============================================
+    "products": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$productId": {
+        ".validate": "newData.hasChildren(['name', 'price', 'stock'])",
+        "name": { ".validate": "newData.isString() && newData.val().length > 0 && newData.val().length <= 200" },
+        "price": { ".validate": "newData.isNumber() && newData.val() >= 0" },
+        "stock": { ".validate": "newData.isNumber() && newData.val() >= 0" }
+      }
+    },
+
+    // ============================================
+    // CRM / Customers
+    // ============================================
+    "crm": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$customerId": {
+        ".validate": "newData.hasChildren(['name', 'email'])",
+        "name": { ".validate": "newData.isString() && newData.val().length <= 100" },
+        "email": { ".validate": "newData.isString() && newData.val().matches(/^[\\w-\\.]+@([\\w-]+\\.)+[\\w-]{2,4}$/)" },
+        "phone": { ".validate": "!newData.exists() || newData.val().matches(/^\\+?[0-9]{10,15}$/)" }
+      }
+    },
+
+    // ============================================
+    // Inventory Movements
+    // ============================================
+    "movements": {
+      ".read": "auth != null",
+      ".write": "auth != null",
+      "$movementId": {
+        ".validate": "newData.hasChildren(['productName', 'type', 'quantity', 'date'])",
+        "type": { ".validate": ["in", "out", "adjustment"].contains(newData.val())" },
+        "quantity": { ".validate": "newData.isNumber() && newData.val() > 0" }
+      }
+    },
+
+    // ============================================
+    // Settings (User-specific)
+    // ============================================
+    "settings": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "$uid === auth.uid"
+      }
+    },
+
+    // ============================================
+    // System/Analytics (Read-only for all auth users)
+    // ============================================
+    "analytics": {
+      ".read": "auth != null",
+      ".write": false,
+      "dailyStats": {
+        "$date": {
+          ".read": true,
+          ".write": "auth != null"
+        }
+      }
+    }
+  }
+}
