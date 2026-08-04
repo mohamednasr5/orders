@@ -1,7 +1,7 @@
 
 import { setLanguage, currentLang, t } from './core/i18n.js';
 import { initTheme } from './core/theme.js';
-import { auth, provider, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged, db, ref, set } from './core/firebase-config.js';
+import { auth, provider, signInWithPopup, signOut, onAuthStateChanged, db, ref, set } from './core/firebase-config.js';
 import { showToast } from './components/ui.js';
 
 // Views
@@ -41,27 +41,25 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // 1. Handle Redirect Result (Runs on page load after returning from Google)
-    getRedirectResult(auth).then((result) => {
-        if (result && result.user) {
-            // User successfully logged in via redirect
-            console.log("Logged in:", result.user);
-        }
-    }).catch((error) => {
-        showToast("خطأ في تسجيل الدخول: " + error.message, 'error');
-    });
-
-    // 2. Login Action (Triggers the redirect)
+    // Login Action (Using Popup with explicit error handling for Kaspersky/Brave/Adblockers)
     document.getElementById('btn-google-login').addEventListener('click', (e) => {
         e.preventDefault();
         const btn = e.currentTarget;
-        btn.innerHTML = `<div class="spinner" style="width: 20px; height: 20px; border-width: 3px; border-top-color: white; margin-left: 10px; margin-bottom: 0; display: inline-block; vertical-align: middle;"></div> <span data-i18n="loading">جاري التحويل...</span>`;
+        const originalHTML = btn.innerHTML;
+        btn.innerHTML = `<div class="spinner" style="width: 20px; height: 20px; border-width: 3px; border-top-color: white; margin-left: 10px; margin-bottom: 0; display: inline-block; vertical-align: middle;"></div> <span data-i18n="loading">جاري التحقق...</span>`;
         btn.style.opacity = '0.7';
         btn.style.pointerEvents = 'none';
         
-        signInWithRedirect(auth, provider).catch(error => {
-            showToast(error.message, 'error');
-            btn.innerHTML = `<i class='bx bxl-google'></i> <span data-i18n="loginGoogle">تسجيل الدخول باستخدام Google</span>`;
+        signInWithPopup(auth, provider).then((result) => {
+            // Success handled by onAuthStateChanged
+        }).catch(error => {
+            // Check if it's a popup blocker issue
+            if (error.code === 'auth/popup-closed-by-user' || error.code === 'auth/popup-blocked') {
+                showToast("حدث خطأ: الرجاء السماح بالنوافذ المنبثقة (Popups) من متصفحك أو إيقاف مانع الإعلاناتชົ่วคราว.", 'error');
+            } else {
+                showToast("خطأ: " + error.message, 'error');
+            }
+            btn.innerHTML = originalHTML;
             btn.style.opacity = '1';
             btn.style.pointerEvents = 'auto';
         });
