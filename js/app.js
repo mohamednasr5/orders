@@ -1,7 +1,7 @@
 
 import { setLanguage, currentLang, t } from './core/i18n.js';
 import { initTheme } from './core/theme.js';
-import { auth, provider, signInWithPopup, signOut, onAuthStateChanged, db, ref, set } from './core/firebase-config.js';
+import { auth, provider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged, db, ref, set, get } from './core/firebase-config.js';
 import { showToast } from './components/ui.js';
 
 // Views
@@ -29,6 +29,18 @@ document.addEventListener('DOMContentLoaded', () => {
     // Initialize language and theme
     setLanguage(currentLang);
     initTheme();
+
+    // Check for redirect sign-in result (fallback method)
+    getRedirectResult(auth).then((result) => {
+        if (result) {
+            console.log('✅ Redirect sign-in result:', result.user?.email);
+        }
+    }).catch((error) => {
+        if (error.code !== 'auth/redirect-cancelled-by-user' && 
+            error.code !== 'auth/null-user') {
+            console.warn('Redirect result check:', error.code);
+        }
+    });
 
     // Firebase Auth State Listener
     onAuthStateChanged(auth, (user) => {
@@ -63,43 +75,120 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // Google Login Button Handler
-    document.getElementById('btn-google-login').addEventListener('click', (e) => {
-        e.preventDefault();
-        const btn = e.currentTarget;
-        const originalHTML = btn.innerHTML;
+    const googleLoginBtn = document.getElementById('btn-google-login');
+    
+    if (!googleLoginBtn) {
+        console.error('❌ Google Login button not found! Check HTML element id.');
+    } else {
+        console.log('✅ Google Login button found, attaching click handler...');
         
-        // Show loading state
-        btn.innerHTML = `
-            <div class="spinner" style="width: 20px; height: 20px; border-width: 3px; border-top-color: white; margin-left: 10px; display: inline-block; vertical-align: middle;"></div>
-            <span>جاري تسجيل الدخول...</span>
-        `;
-        btn.style.opacity = '0.7';
-        btn.style.pointerEvents = 'none';
-        
-        // Sign in with Google popup
-        signInWithPopup(auth, provider).then((result) => {
-            // Success handled by onAuthStateChanged
-            console.log('Signed in user:', result.user);
-        }).catch(error => {
-            console.error('Sign in error:', error);
+        googleLoginBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            e.stopPropagation();
             
-            // Handle specific errors
-            if (error.code === 'auth/popup-closed-by-user') {
-                showToast('تم إغلاق نافذة تسجيل الدخول', 'warning');
-            } else if (error.code === 'auth/popup-blocked') {
-                showToast('يرجى السماح بالنوافذ المنبثقة في متصفحك', 'error');
-            } else if (error.code === 'auth/cancelled-popup-request') {
-                showToast('تم إلغاء عملية تسجيل الدخول', 'warning');
-            } else {
+            const btn = e.currentTarget;
+            const originalHTML = btn.innerHTML;
+            
+            console.log('🔵 Google Login clicked! Starting authentication...');
+            
+            // Show loading state
+            btn.innerHTML = `
+                <div class="spinner" style="width: 20px; height: 20px; border-width: 3px; border-top-color: white; margin-left: 10px; display: inline-block; vertical-align: middle;"></div>
+                <span>جاري فتح نافذة جوجل...</span>
+            `;
+            btn.style.opacity = '0.7';
+            btn.style.pointerEvents = 'none';
+            
+            try {
+                // Check if auth is initialized
+                if (!auth) {
+                    throw new Error('Firebase Auth not initialized');
+                }
+                
+                console.log('📞 Calling signInWithPopup...');
+                
+                // Sign in with Google popup with timeout
+                const result = await Promise.race([
+                    signInWithPopup(auth, provider),
+                    new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('timeout')), 30000)
+                    )
+                ]);
+                
+                // Success handled by onAuthStateChanged
+                console.log('✅ Signed in successfully:', result.user?.email || result.user?.displayName);
+                
+            } catch (error) {
+                console.error('❌ Sign in error:', error.code, error.message);
+                
+                // Handle specific errors
+                if (error.message === 'timeout') {
+                    showToast('استغرقت العملية وقتاً طويلاً، يرجى المحاولة مرة أخرى', 'error');
+                } else if (error.code === 'auth/popup-closed-by-user') {
+                    showToast('تم إغلاق نافذة تسجيل الدخول', 'warning');
+                } else if (error.code === 'auth/popup-blocked') {
+                    // Popup blocked - Try redirect method as fallback
+                    console.log('🔄 Popup blocked, trying redirect method...');
+                    showToast('جاري تحويلك لتسجيل الدخول بطريقة بديلة...', 'info');
+                    
+                    // Restore button before redirect
+                    btn.innerHTML = originalHTML;
+                    btn.style.opacity = '1';
+                    btn.style.pointerEvents = 'auto';
+                    
+                    // Use redirect instead of popup
+                    try {
+                        await signInWithRedirect(auth, provider);
+                        // Page will redirect, so this won't execute normally
+                    } catch (redirectError) {
+                        console.error('Redirect also failed:', redirectError);
+                        showToast('فشل تسجيل الدخول: ' + redirectError.message, 'error');
+                    }
+                    return; // Don't restore button again since we're redirecting
+                } else if (error.code === 'auth/cancelled-popup-request') {
+                    showToast('تم إلغاء عملية تسجيل الدخول', 'warning');
+                } else if (error.code === 'auth/unauthorized-domain') {
+                    showToast('❌ هذا النطاق غير مصرح له! يرجى إضافته في Firebase Console', 'error');
+                    console.error('Unauthorized domain! Add this domain to Firebase Console → Authentication → Authorized domains');
+                } else if (error.code === 'auth/api-key-not-authorized') {
+                    showToast('❌ مفتاح API غير مصرح به', 'error');
+                } else {
+                    showToast('خطأ: ' + (error.message || 'حدث خطأ غير معروف'), 'error');
+                }
+                
+                // Restore button state
+                btn.innerHTML = originalHTML;
+                btn.style.opacity = '1';
+                btn.style.pointerEvents = 'auto';
+            }
+        });
+    }
+
+    // Alternative Redirect Login Button Handler
+    const redirectLoginBtn = document.getElementById('btn-google-redirect');
+    if (redirectLoginBtn) {
+        redirectLoginBtn.addEventListener('click', async (e) => {
+            e.preventDefault();
+            console.log('🔄 Redirect login button clicked...');
+            
+            const btn = e.currentTarget;
+            const originalHTML = btn.innerHTML;
+            
+            btn.innerHTML = `<div class="spinner" style="width:16px;height:16px;border-width:2px;border-top-color:currentColor;display:inline-block;vertical-align:middle;margin-left:8px;"></div> جاري التحويل...`;
+            btn.style.opacity = '0.7';
+            btn.style.pointerEvents = 'none';
+            
+            try {
+                await signInWithRedirect(auth, provider);
+            } catch (error) {
+                console.error('Redirect error:', error);
+                btn.innerHTML = originalHTML;
+                btn.style.opacity = '1';
+                btn.style.pointerEvents = 'auto';
                 showToast('خطأ: ' + error.message, 'error');
             }
-            
-            // Restore button state
-            btn.innerHTML = originalHTML;
-            btn.style.opacity = '1';
-            btn.style.pointerEvents = 'auto';
         });
-    });
+    }
 
     // Logout Handler
     document.getElementById('btn-logout').addEventListener('click', () => {

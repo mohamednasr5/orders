@@ -1,0 +1,30 @@
+{
+  "rules": {
+    "orders": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "products": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "crm": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "movements": {
+      ".read": "auth != null",
+      ".write": "auth != null"
+    },
+    "settings": {
+      "$uid": {
+        ".read": "$uid === auth.uid",
+        ".write": "$uid === auth.uid"
+      }
+    },
+    "analytics": {
+      ".read": "auth != null",
+      ".write": false
+    }
+  }
+}
