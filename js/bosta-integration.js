@@ -773,6 +773,16 @@ const BostaIntegration = {
     },
 
     /**
+     * Alias for trackDelivery - used by app.js
+     * @param {string} trackingNumber - Bosta tracking number
+     * @returns {Promise<object>} Tracking data
+     */
+    async trackShipment(trackingNumber) {
+        console.log('[Bosta] 🔄 trackShipment() → calling trackDelivery()');
+        return this.trackDelivery(trackingNumber);
+    },
+
+    /**
      * Update delivery status in Firebase
      */
     async updateDeliveryStatusInFirebase(trackingNumber, trackingData) {
