@@ -246,7 +246,7 @@ const BostaIntegration = {
             'X-Bosta-Source': 'shipli-pwa-v3'
         };
         return headers;
-    }
+    },
 
     /**
      * Make API request with proper error handling
@@ -595,7 +595,7 @@ const BostaIntegration = {
 
             const cities = result.data || result.cities || result.records || (Array.isArray(result) ? result : []);
             
-            console.log `[Bosta] ✅ Found ${cities.length} cities`;
+            console.log(`[Bosta] ✅ Found ${cities.length} cities`);
             return cities;
 
         } catch (error) {
