@@ -172,7 +172,12 @@ function initGoogleProvider() {
 async function signInWithGoogle() {
     try {
         // Show loading
-        showLoading('جاري تسجيل الدخول بجوجل...');
+        showLoading(true);
+        
+        // Update loading text
+        const overlay = document.getElementById('loadingOverlay');
+        const loadingText = overlay?.querySelector('p');
+        if (loadingText) loadingText.textContent = 'جاري تسجيل الدخول بجوجل...';
         
         // Initialize provider
         const provider = initGoogleProvider();
@@ -196,11 +201,11 @@ async function signInWithGoogle() {
         // Sync data to Firebase
         await syncDataWithFirebase();
         
-        hideLoading();
+        showLoading(false);
         showToast(`مرحباً ${user.displayName || 'بك'}! ✅`, 'success');
         
     } catch (error) {
-        hideLoading();
+        showLoading(false);
         console.error('Google Sign-In error:', error);
         
         if (error.code === 'auth/popup-closed-by-user') {
@@ -223,7 +228,12 @@ async function signInWithGoogle() {
 async function signOutUser() {
     try {
         hideUserMenu();
-        showLoading('جاري تسجيل الخروج...');
+        showLoading(true);
+        
+        // Update loading text
+        const overlay = document.getElementById('loadingOverlay');
+        const loadingText = overlay?.querySelector('p');
+        if (loadingText) loadingText.textContent = 'جاري تسجيل الخروج...';
         
         await auth.signOut();
         
@@ -233,11 +243,11 @@ async function signOutUser() {
         // Sign in anonymously for basic functionality
         await signInAnonymously();
         
-        hideLoading();
+        showLoading(false);
         showToast('تم تسجيل الخروج بنجاح', 'info');
         
     } catch (error) {
-        hideLoading();
+        showLoading(false);
         console.error('Sign-out error:', error);
         showToast('حدث خطأ أثناء تسجيل الخروج', 'error');
     }
@@ -358,13 +368,16 @@ async function viewFirebaseData() {
     }
     
     try {
-        showLoading('جاري تحميل البيانات...');
+        showLoading(true);
+        const overlay = document.getElementById('loadingOverlay');
+        const loadingText = overlay?.querySelector('p');
+        if (loadingText) loadingText.textContent = 'جاري تحميل البيانات...';
         
         // Fetch data from Firebase
         const snapshot = await db.ref('/').once('value');
         const data = snapshot.val();
         
-        hideLoading();
+        showLoading(false);
         
         if (data) {
             console.log('📊 Firebase Data:', data);
@@ -384,7 +397,7 @@ async function viewFirebaseData() {
         }
         
     } catch (error) {
-        hideLoading();
+        showLoading(false);
         console.error('Firebase read error:', error);
         showToast('خطأ في قراءة البيانات: ' + error.message, 'error');
     }
