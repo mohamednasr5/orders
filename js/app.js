@@ -1,7 +1,7 @@
 
 import { setLanguage, currentLang, t } from './core/i18n.js';
 import { initTheme } from './core/theme.js';
-import { auth, provider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, db, ref, set, get } from './core/firebase-config.js';
+import { auth, provider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile, sendPasswordResetEmail, db, ref, set, get } from './core/firebase-config.js';
 import { showToast } from './components/ui.js';
 
 // Views
@@ -74,6 +74,19 @@ document.addEventListener('DOMContentLoaded', () => {
             // Update user info in navbar
             document.getElementById('user-name').innerText = user.displayName || 'User';
             document.getElementById('user-avatar').src = user.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(user.displayName || 'User')}&background=2563eb&color=fff`;
+
+            // Ensure a user record exists in the database (covers Google sign-in)
+            get(ref(db, `users/${user.uid}`)).then(snap => {
+                if (!snap.exists()) {
+                    set(ref(db, `users/${user.uid}`), {
+                        uid: user.uid,
+                        name: user.displayName || 'User',
+                        email: user.email || '',
+                        role: 'user',
+                        createdAt: new Date().toISOString()
+                    });
+                }
+            });
 
             // Seed initial data for demo purposes
             seedInitialData();
@@ -165,6 +178,29 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // ============================================
+    // Forgot Password Handler
+    // ============================================
+    const forgotPasswordLink = document.getElementById('forgot-password-link');
+    if (forgotPasswordLink) {
+        forgotPasswordLink.addEventListener('click', async () => {
+            const email = document.getElementById('login-email').value.trim();
+            if (!email) {
+                showToast('يرجى إدخال البريد الإلكتروني أولاً', 'error');
+                return;
+            }
+            try {
+                await sendPasswordResetEmail(auth, email);
+                showToast('تم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك', 'success');
+            } catch (error) {
+                let msg = 'تعذر إرسال رابط إعادة التعيين';
+                if (error.code === 'auth/user-not-found') msg = 'لا يوجد حساب بهذا البريد';
+                else if (error.code === 'auth/invalid-email') msg = 'صيغة البريد الإلكتروني غير صحيحة';
+                showToast(msg, 'error');
+            }
+        });
+    }
+
+    // ============================================
     // Register Modal Handler
     // ============================================
     const showRegisterBtn = document.getElementById('show-register');
@@ -233,8 +269,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 
                 // Update user profile with name
                 if (userCredential.user && name) {
-                    await userCredential.user.updateProfile({ displayName: name });
+                    await updateProfile(userCredential.user, { displayName: name });
                 }
+
+                // Create user record in Realtime Database
+                await set(ref(db, `users/${userCredential.user.uid}`), {
+                    uid: userCredential.user.uid,
+                    name: name,
+                    email: userCredential.user.email,
+                    role: 'user',
+                    createdAt: new Date().toISOString()
+                });
                 
                 console.log('✅ Account created:', userCredential.user.email);
                 showToast('تم إنشاء الحساب بنجاح! مرحباً بك 🎉', 'success');
