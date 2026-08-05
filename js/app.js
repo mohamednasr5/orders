@@ -1,7 +1,7 @@
 
 import { setLanguage, currentLang, t } from './core/i18n.js';
 import { initTheme } from './core/theme.js';
-import { auth, provider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile, sendPasswordResetEmail, db, ref, set, get } from './core/firebase-config.js';
+import { auth, provider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, updateProfile, sendPasswordResetEmail, db, ref, set, get, onValue } from './core/firebase-config.js';
 import { showToast } from './components/ui.js';
 
 // Views
@@ -87,9 +87,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                 }
             });
-
-            // Seed initial data for demo purposes
-            seedInitialData();
 
             // Show app after short delay for smooth transition
             setTimeout(() => {
@@ -573,131 +570,25 @@ function loadView(route) {
 }
 
 /**
- * Seed initial demo data into Firebase
- */
-function seedInitialData() {
-    // Check if we already have data to avoid overwriting
-    get(ref(db, 'orders')).then(snapshot => {
-        if(!snapshot.exists()) {
-            // Seed orders
-            set(ref(db, 'orders/ord1'), { 
-                id: '#ORD-001', 
-                customer: 'أحمد محمد', 
-                customerEmail: 'ahmed@test.com',
-                phone: '01012345678',
-                amount: 1500, 
-                status: 'delivered',
-                date: new Date().toISOString().split('T')[0],
-                notes: 'طلب تجريبي',
-                createdAt: new Date().toISOString()
-            });
-            set(ref(db, 'orders/ord2'), { 
-                id: '#ORD-002', 
-                customer: 'شركة التقنية المتقدمة', 
-                customerEmail: 'info@techco.com',
-                phone: '0223456789',
-                amount: 4500, 
-                status: 'shipped',
-                date: new Date(Date.now() - 86400000).toISOString().split('T')[0],
-                createdAt: new Date(Date.now() - 86400000).toISOString()
-            });
-            set(ref(db, 'orders/ord3'), { 
-                id: '#ORD-003', 
-                customer: 'سارة أحمد', 
-                customerEmail: 'sara@email.com',
-                phone: '01098765432',
-                amount: 850, 
-                status: 'pending',
-                date: new Date().toISOString().split('T')[0],
-                createdAt: new Date().toISOString()
-            });
-        }
-    });
-    
-    // Seed CRM data
-    get(ref(db, 'crm')).then(snapshot => {
-        if(!snapshot.exists()) {
-            set(ref(db, 'crm/cust1'), { 
-                name: 'أحمد محمد', 
-                email: 'ahmed@test.com', 
-                phone: '01012345678',
-                company: '',
-                totalOrders: 5,
-                totalSpent: 7500,
-                lastOrderDate: new Date().toISOString(),
-                createdAt: new Date().toISOString()
-            });
-            set(ref(db, 'crm/cust2'), { 
-                name: 'شركة التقنية المتقدمة', 
-                email: 'info@techco.com', 
-                phone: '0223456789',
-                company: 'Tech Co.',
-                totalOrders: 12,
-                totalSpent: 45000,
-                lastOrderDate: new Date(Date.now() - 604800000).toISOString(),
-                createdAt: new Date(Date.now() - 2592000000).toISOString()
-            });
-        }
-    });
-    
-    // Seed Products data
-    get(ref(db, 'products')).then(snapshot => {
-        if(!snapshot.exists()) {
-            set(ref(db, 'products/prod1'), { 
-                name: 'لابتوب احترافي', 
-                sku: 'LPT-001', 
-                category: 'electronics',
-                price: 25000, 
-                stock: 15,
-                description: 'لبتوب عالي الأداء للعمل والترفيه',
-                imageUrl: '',
-                createdAt: new Date().toISOString()
-            });
-            set(ref(db, 'products/prod2'), { 
-                name: 'ماوس لاسلكي', 
-                sku: 'MSE-001', 
-                category: 'electronics',
-                price: 299, 
-                stock: 50,
-                description: 'ماوس لاسلكي دقيق وبطارية طويلة',
-                imageUrl: '',
-                createdAt: new Date().toISOString()
-            });
-            set(ref(db, 'products/prod3'), { 
-                name: 'تي شيرت قطني', 
-                sku: 'TSH-001', 
-                category: 'clothing',
-                price: 199, 
-                stock: 8,
-                description: 'تي شيرت قطني عالي الجودة',
-                imageUrl: '',
-                createdAt: new Date().toISOString()
-            });
-            set(ref(db, 'products/prod4'), { 
-                name: 'قهوة عربية', 
-                sku: 'COF-001', 
-                category: 'food',
-                price: 85, 
-                stock: 100,
-                description: 'قهوة عربية فاخرة',
-                imageUrl: '',
-                createdAt: new Date().toISOString()
-            });
-        }
-    });
-}
-
-/**
- * Update notification badge count
+ * Update notification badge count with real pending-orders count (live)
  */
 function updateNotificationBadge() {
     const badge = document.querySelector('.notification-bell .badge');
-    if(badge) {
-        // Simulate some notifications
-        const pendingCount = Math.floor(Math.random() * 3);
-        if(pendingCount > 0) {
+    if (!badge) return;
+
+    onValue(ref(db, 'orders'), (snapshot) => {
+        let pendingCount = 0;
+        snapshot.forEach(child => {
+            const order = child.val();
+            if (order && order.status === 'pending') pendingCount++;
+        });
+
+        if (pendingCount > 0) {
             badge.textContent = pendingCount;
             badge.classList.add('visible');
+        } else {
+            badge.textContent = '0';
+            badge.classList.remove('visible');
         }
-    }
+    });
 }

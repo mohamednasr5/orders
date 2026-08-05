@@ -350,7 +350,11 @@ function updateProductsReport(products) {
 
 function updateCustomersReport(customers) {
     document.getElementById('report-customer-count').innerText = customers.length;
-    document.getElementById('report-new-customers').innerText = Math.max(1, Math.floor(customers.length * 0.3));
+
+    // Real count of customers created within the last 30 days
+    const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+    const newCustomersCount = customers.filter(c => c.createdAt && new Date(c.createdAt).getTime() >= thirtyDaysAgo).length;
+    document.getElementById('report-new-customers').innerText = newCustomersCount;
     
     const totalSpent = customers.reduce((acc, c) => acc + (c.totalSpent || 0), 0);
     document.getElementById('report-customer-revenue').innerText = totalSpent.toLocaleString() + ' ' + t('currency');

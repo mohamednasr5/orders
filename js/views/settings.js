@@ -144,10 +144,6 @@ export function renderSettings(container) {
                         <button class="btn-outline btn-sm" onclick="clearCache()" style="justify-content:center;color:var(--warning);border-color:var(--warning);">
                             <i class='bx bx-trash'></i> مسح ذاكرة التخزين المؤقت
                         </button>
-                        
-                        <button class="btn-danger btn-sm" onclick="confirmResetData()" style="justify-content:center;">
-                            <i class='bx bx-reset'></i> إعادة تعيين بيانات التجربة
-                        </button>
                     </div>
                     
                     <div style="margin-top:20px;padding:15px;background:var(--warning-light);border-radius:var(--radius-md);">
@@ -294,28 +290,4 @@ window.clearCache = function() {
     }
 };
 
-window.confirmResetData = function() {
-    if(confirm('⚠️ هل أنت متأكد من إعادة تعيين بيانات التجربة؟\nسيتم حذف جميع البيانات التجريبية.')) {
-        import('../core/firebase-config.js').then(({ db, ref, set }) => {
-            // Reset with sample data
-            Promise.all([
-                set(ref(db, 'orders'), {
-                    ord1: { id: '#ORD-001', customer: 'أحمد محمد', customerEmail: 'ahmed@test.com', phone: '01012345678', amount: 1500, status: 'delivered', date: new Date().toISOString().split('T')[0] },
-                    ord2: { id: '#ORD-002', customer: 'شركة التقنية', customerEmail: 'info@techco.com', phone: '0223456789', amount: 4500, status: 'shipped', date: new Date(Date.now() - 86400000).toISOString().split('T')[0] },
-                    ord3: { id: '#ORD-003', customer: 'سارة أحمد', customerEmail: 'sara@email.com', phone: '01098765432', amount: 850, status: 'pending', date: new Date().toISOString().split('T')[0] }
-                }),
-                set(ref(db, 'products'), {
-                    prod1: { name: 'منتج تجريبي 1', sku: 'PRD-001', category: 'electronics', price: 299, stock: 50, description: 'وصف المنتج الأول', imageUrl: '' },
-                    prod2: { name: 'منتج تجريبي 2', sku: 'PRD-002', category: 'clothing', price: 149, stock: 8, description: 'وصف المنتج الثاني', imageUrl: '' },
-                    prod3: { name: 'منتج تجريبي 3', sku: 'PRD-003', category: 'food', price: 75, stock: 100, description: 'وصف المنتج الثالث', imageUrl: '' }
-                }),
-                set(ref(db, 'crm'), {
-                    cust1: { name: 'أحمد محمد', email: 'ahmed@test.com', phone: '01012345678', company: '', totalOrders: 5, totalSpent: 7500, createdAt: new Date().toISOString() },
-                    cust2: { name: 'شركة التقنية', email: 'info@techco.com', phone: '0223456789', company: 'Tech Co.', totalOrders: 12, totalSpent: 45000, createdAt: new Date(Date.now() - 604800000).toISOString() }
-                })
-            ]).then(() => {
-                showToast('تم إعادة تعيين البيانات بنجاح', 'success');
-            });
-        });
-    }
-};
+
