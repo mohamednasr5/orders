@@ -1,156 +1,875 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl" data-theme="light">
+<html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title data-i18n="title">نظام إدارة الطلبات | SaaS OMS</title>
-    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
-    <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <link rel="stylesheet" href="css/variables.css">
-    <link rel="stylesheet" href="css/layout.css">
-    <link rel="stylesheet" href="css/components.css">
-    <link rel="stylesheet" href="css/animations.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#1e40af">
+    <meta name="description" content="نظام إدارة الشحن واللوجستيات الاحترافي">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="شحنلي">
+    
+    <title>شحنلي - نظام إدارة الشحن</title>
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
+    
+    <!-- Icons -->
+    <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+    <link rel="apple-touch-icon" href="icons/icon-192.png">
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- JsBarcode for Barcode Generation -->
+    <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"></script>
+    
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-database-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
+    
+    <!-- Main Styles -->
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-    <!-- Login Screen -->
-    <div id="login-screen" class="login-screen">
-        <div class="login-box">
-            <div class="logo-icon" style="font-size: 50px; color: var(--primary);"><i class='bx bx-cube-alt'></i></div>
-            <h2>SaaS OMS</h2>
-            <p data-i18n="loginDesc">الرجاء تسجيل الدخول للوصول إلى النظام</p>
-            
-            <!-- Email/Password Login Form -->
-            <form id="email-login-form" style="margin-top: 20px;">
-                <div class="form-group" style="margin-bottom: 15px;">
-                    <label style="display:block;margin-bottom:6px;font-size:14px;color:var(--text-secondary);">البريد الإلكتروني</label>
-                    <input type="email" id="login-email" class="form-control" placeholder="example@email.com" required 
-                           style="width:100%;padding:12px 15px;border:1px solid var(--border-color);border-radius:8px;font-size:14px;background:var(--bg-main);color:var(--text-primary);">
-                </div>
-                <div class="form-group" style="margin-bottom: 15px;">
-                    <label style="display:block;margin-bottom:6px;font-size:14px;color:var(--text-secondary);">كلمة المرور</label>
-                    <input type="password" id="login-password" class="form-control" placeholder="••••••••" required 
-                           style="width:100%;padding:12px 15px;border:1px solid var(--border-color);border-radius:8px;font-size:14px;background:var(--bg-main);color:var(--text-primary);">
-                </div>
-                <button type="submit" id="btn-email-login" class="btn-primary" style="width: 100%; justify-content: center; padding: 12px;">
-                    <i class='bx bx-log-in'></i> <span>تسجيل الدخول</span>
-                </button>
-                <p style="text-align:center;margin-top:12px;">
-                    <a href="javascript:void(0)" id="forgot-password-link" style="color:var(--text-secondary);text-decoration:none;font-size:13px;">نسيت كلمة المرور؟</a>
-                </p>
-            </form>
-
-            <div style="text-align:center;margin:15px 0;position:relative;">
-                <span style="background:var(--bg-body);padding:0 10px;color:var(--text-secondary);font-size:13px;">أو</span>
-                <div style="position:absolute;top:50%;left:0;right:0;height:1px;background:var(--border-color);z-index:-1;"></div>
+    <!-- Install Banner -->
+    <div id="installBanner" class="install-banner hidden">
+        <div class="install-banner-content">
+            <div class="install-icon">📦</div>
+            <div class="install-text">
+                <h3>ثبت تطبيق شحنلي</h3>
+                <p>احصل على تجربة سريعة بدون متصفح</p>
             </div>
-
-            <button id="btn-google-login" type="button" class="btn-outline" style="width: 100%; justify-content: center;">
-                <i class='bx bxl-google'></i> <span>تسجيل الدخول بـ Google</span>
-            </button>
-            
-            <p style="text-align:center;margin-top:15px;font-size:12px;color:var(--text-secondary);">
-                ليس لديك حساب؟ <a href="javascript:void(0)" onclick="openRegisterModal()" id="show-register" style="color:var(--primary);text-decoration:none;font-weight:600;">إنشاء حساب جديد</a>
-            </p>
+            <button id="installBtn" class="install-btn">تثبت الآن</button>
+            <button id="dismissInstall" class="dismiss-btn">✕</button>
         </div>
     </div>
 
-    <!-- Register Modal -->
-    <div id="register-modal" class="modal-overlay" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.5);z-index:9999;justify-content:center;align-items:center;padding:20px;">
-        <div class="modal" style="max-width:450px;width:100%;background:var(--bg-card);border-radius:12px;box-shadow:0 20px 60px rgba(0,0,0,0.3);overflow:hidden;">
-            <div class="modal-header" style="padding:20px;border-bottom:1px solid var(--border-color);display:flex;justify-content:space-between;align-items:center;">
-                <h3 style="margin:0;font-size:18px;color:var(--text-primary);"><i class='bx bx-user-plus'></i> إنشاء حساب جديد</h3>
-                <button onclick="document.getElementById('register-modal').style.display='none'" style="background:none;border:none;font-size:24px;cursor:pointer;color:var(--text-secondary);padding:0;line-height:1;">×</button>
-            </div>
-            <div class="modal-body" style="padding:20px;">
-                <form id="register-form">
-                    <div style="margin-bottom: 15px;">
-                        <label style="display:block;margin-bottom:6px;font-size:13px;color:var(--text-secondary);font-weight:500;">الاسم الكامل *</label>
-                        <input type="text" id="reg-name" placeholder="أحمد محمد" required
-                               style="width:100%;padding:12px;border:1px solid var(--border-color);border-radius:8px;font-size:14px;background:var(--bg-main);color:var(--text-primary);box-sizing:border-box;">
+    <!-- App Container -->
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-content">
+                <div class="logo-section" id="logoSection">
+                    <div class="default-logo">🚚</div>
+                    <img id="storeLogo" class="store-logo hidden" alt="شعار المتجر">
+                    <div class="brand-info">
+                        <h1 id="storeName">شحنلي</h1>
+                        <span class="tagline">نظام الشحن الاحترافي</span>
                     </div>
-                    <div style="margin-bottom: 15px;">
-                        <label style="display:block;margin-bottom:6px;font-size:13px;color:var(--text-secondary);font-weight:500;">البريد الإلكتروني *</label>
-                        <input type="email" id="reg-email" placeholder="example@email.com" required
-                               style="width:100%;padding:12px;border:1px solid var(--border-color);border-radius:8px;font-size:14px;background:var(--bg-main);color:var(--text-primary);box-sizing:border-box;">
-                    </div>
-                    <div style="margin-bottom: 15px;">
-                        <label style="display:block;margin-bottom:6px;font-size:13px;color:var(--text-secondary);font-weight:500;">كلمة المرور * (6 أحرف على الأقل)</label>
-                        <input type="password" id="reg-password" required minlength="6"
-                               style="width:100%;padding:12px;border:1px solid var(--border-color);border-radius:8px;font-size:14px;background:var(--bg-main);color:var(--text-primary);box-sizing:border-box;">
-                    </div>
-                    <div style="margin-bottom: 15px;">
-                        <label style="display:block;margin-bottom:6px;font-size:13px;color:var(--text-secondary);font-weight:500;">تأكيد كلمة المرور *</label>
-                        <input type="password" id="reg-confirm" required
-                               style="width:100%;padding:12px;border:1px solid var(--border-color);border-radius:8px;font-size:14px;background:var(--bg-main);color:var(--text-primary);box-sizing:border-box;">
-                    </div>
-                    <button type="submit" id="btn-register-submit" 
-                            style="width:100%;padding:14px;background:var(--primary);color:white;border:none;border-radius:8px;font-size:15px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;">
-                        <i class='bx bx-user-plus'></i> إنشاء الحساب
+                </div>
+                <div class="header-actions">
+                    <button class="header-btn" id="notificationsBtn" title="الإشعارات">
+                        <span class="badge" id="notifBadge">3</span>
+                        🔔
                     </button>
+                    <button class="header-btn" id="settingsBtn" title="الإعدادات">
+                        ⚙️
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Navigation Tabs -->
+        <nav class="main-nav">
+            <button class="nav-tab active" data-tab="dashboard">
+                <span class="nav-icon">📊</span>
+                <span class="nav-text">لوحة التحكم</span>
+            </button>
+            <button class="nav-tab" data-tab="shipments">
+                <span class="nav-icon">📦</span>
+                <span class="nav-text">الشحنات</span>
+            </button>
+            <button class="nav-tab" data-tab="waybill">
+                <span class="nav-icon">📄</span>
+                <span class="nav-text">بوليصة جديدة</span>
+            </button>
+            <button class="nav-tab" data-tab="tracking">
+                <span class="nav-icon">🔍</span>
+                <span class="nav-text">تتبع</span>
+            </button>
+            <button class="nav-tab" data-tab="customers">
+                <span class="nav-icon">👥</span>
+                <span class="nav-text">العملاء</span>
+            </button>
+            <button class="nav-tab" data-tab="settings">
+                <span class="nav-icon">⚙️</span>
+                <span class="nav-text">الإعدادات</span>
+            </button>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            
+            <!-- Dashboard Tab -->
+            <section id="dashboard" class="tab-content active">
+                <div class="stats-grid">
+                    <div class="stat-card stat-primary">
+                        <div class="stat-icon">📦</div>
+                        <div class="stat-info">
+                            <h3 id="totalShipments">0</h3>
+                            <p>إجمالي الشحنات</p>
+                        </div>
+                        <div class="stat-trend up">↑ 12%</div>
+                    </div>
+                    <div class="stat-card stat-success">
+                        <div class="stat-icon">✅</div>
+                        <div class="stat-info">
+                            <h3 id="deliveredCount">0</h3>
+                            <p>تم التسليم</p>
+                        </div>
+                        <div class="stat-trend up">↑ 8%</div>
+                    </div>
+                    <div class="stat-card stat-warning">
+                        <div class="stat-icon">🚚</div>
+                        <div class="stat-info">
+                            <h3 id="inTransitCount">0</h3>
+                            <p>قيد التوصيل</p>
+                        </div>
+                        <div class="stat-trend">—</div>
+                    </div>
+                    <div class="stat-card stat-danger">
+                        <div class="stat-icon">❌</div>
+                        <div class="stat-info">
+                            <h3 id="returnedCount">0</h3>
+                            <p>مرتجع</p>
+                        </div>
+                        <div class="stat-trend down">↓ 3%</div>
+                    </div>
+                </div>
+
+                <div class="dashboard-grid">
+                    <!-- Recent Shipments -->
+                    <div class="card recent-shipments">
+                        <div class="card-header">
+                            <h2>آخر الشحنات</h2>
+                            <button class="text-btn" onclick="switchTab('shipments')">عرض الكل</button>
+                        </div>
+                        <div class="card-body">
+                            <div id="recentShipmentsList" class="shipment-list">
+                                <div class="empty-state">
+                                    <span class="empty-icon">📭</span>
+                                    <p>لا توجد شحنات بعد</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Quick Actions -->
+                    <div class="card quick-actions">
+                        <div class="card-header">
+                            <h2>إجراءات سريعة</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="action-grid">
+                                <button class="action-btn" onclick="switchTab('waybill')">
+                                    <span class="action-icon">➕</span>
+                                    <span>بوليصة جديدة</span>
+                                </button>
+                                <button class="action-btn" onclick="openBarcodeScanner()">
+                                    <span class="action-icon">📷</span>
+                                    <span>مسح باركود</span>
+                                </button>
+                                <button class="action-btn" onclick="switchTab('tracking')">
+                                    <span class="action-icon">🔍</span>
+                                    <span>تتبع شحنة</span>
+                                </button>
+                                <button class="action-btn" onclick="exportData()">
+                                    <span class="action-icon">📊</span>
+                                    <span>تصدير البيانات</span>
+                                </button>
+                                <button class="action-btn" onclick="printReport()">
+                                    <span class="action-icon">🖨️</span>
+                                    <span>طباعة تقرير</span>
+                                </button>
+                                <button class="action-btn" onclick="switchTab('customers')">
+                                    <span class="action-icon">👤</span>
+                                    <span>إضافة عميل</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Status Chart -->
+                    <div class="card status-chart">
+                        <div class="card-header">
+                            <h2>حالة الشحنات</h2>
+                        </div>
+                        <div class="card-body">
+                            <div class="chart-container">
+                                <canvas id="statusChart"></canvas>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Today's Summary -->
+                    <div class="card today-summary">
+                        <div class="card-header">
+                            <h2>ملخص اليوم</h2>
+                            <span class="date-badge" id="todayDate"></span>
+                        </div>
+                        <div class="card-body">
+                            <div class="summary-list">
+                                <div class="summary-item">
+                                    <span class="summary-label">شحنات جديدة</span>
+                                    <span class="summary-value" id="todayNew">0</span>
+                                </div>
+                                <div class="summary-item">
+                                    <span class="summary-label">تم الاستلام</span>
+                                    <span class="summary-value" id="todayPicked">0</span>
+                                </div>
+                                <div class="summary-item">
+                                    <span class="summary-label">في الطريق</span>
+                                    <span class="summary-value" id="todayTransit">0</span>
+                                </div>
+                                <div class="summary-item">
+                                    <span class="summary-label">تم التسليم</span>
+                                    <span class="summary-value" id="todayDelivered">0</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Shipments Tab -->
+            <section id="shipments" class="tab-content">
+                <div class="page-header">
+                    <h2>إدارة الشحنات</h2>
+                    <div class="page-actions">
+                        <div class="search-box">
+                            <input type="text" id="shipmentSearch" placeholder="بحث برقم الشحنة أو اسم العميل...">
+                            <span class="search-icon">🔍</span>
+                        </div>
+                        <select id="filterStatus" class="filter-select">
+                            <option value="">كل الحالات</option>
+                            <option value="pending">قيد الانتظار</option>
+                            <option value="picked">تم الاستلام</option>
+                            <option value="in_transit">في الطريق</option>
+                            <option value="delivered">تم التسليم</option>
+                            <option value="returned">مرتجع</option>
+                            <option value="cancelled">ملغي</option>
+                        </select>
+                        <button class="primary-btn" onclick="switchTab('waybill')">
+                            + بوليصة جديدة
+                        </button>
+                    </div>
+                </div>
+
+                <div class="shipments-table-container">
+                    <table class="data-table" id="shipmentsTable">
+                        <thead>
+                            <tr>
+                                <th>رقم الشحنة</th>
+                                <th>المرسل إليه</th>
+                                <th>الهاتف</th>
+                                <th>المدينة</th>
+                                <th>الحالة</th>
+                                <th>التاريخ</th>
+                                <th>الإجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody id="shipmentsTableBody">
+                            <tr class="empty-row">
+                                <td colspan="7">
+                                    <div class="empty-state">
+                                        <span class="empty-icon">📭</span>
+                                        <p>لا توجد شحنات بعد</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- Pagination -->
+                <div class="pagination" id="pagination">
+                    <button class="page-btn" id="prevPage">السابق</button>
+                    <span class="page-info">صفحة <span id="currentPage">1</span> من <span id="totalPages">1</span></span>
+                    <button class="page-btn" id="nextPage">التالي</button>
+                </div>
+            </section>
+
+            <!-- Waybill Creation Tab -->
+            <section id="waybill" class="tab-content">
+                <div class="page-header">
+                    <h2>إنشاء بوليصة شحن جديدة</h2>
+                </div>
+
+                <form id="waybillForm" class="waybill-form">
+                    <!-- Shipment Info -->
+                    <div class="form-section">
+                        <div class="section-title">
+                            <span class="section-icon">📋</span>
+                            <h3>بيانات الشحنة</h3>
+                        </div>
+                        
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="shipmentType">نوع الشحنة *</label>
+                                <select id="shipmentType" required>
+                                    <option value="">اختر النوع</option>
+                                    <option value="delivery">توصيل</option>
+                                    <option value="exchange">استبدال</option>
+                                    <option value="return">مرتجع</option>
+                                    <option value="cash_on_delivery">الدفع عند الاستلام</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="packageType">نوع الطرد *</label>
+                                <select id="packageType" required>
+                                    <option value="">اختر النوع</option>
+                                    <option value="envelope">مظروف</option>
+                                    <option value="box">صندوق صغير</option>
+                                    <option value="large_box">صندوق كبير</option>
+                                    <option value="palette">بالتة</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="weight">الوزن (كجم)</label>
+                                <input type="number" id="weight" step="0.1" min="0" placeholder="0.0">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="pieces">عدد القطع</label>
+                                <input type="number" id="pieces" min="1" value="1">
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label for="description">وصف المحتويات</label>
+                                <textarea id="description" rows="2" placeholder="اكتب وصف محتويات الشحنة..."></textarea>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="declaredValue">القيمة المعلنة (ج.م)</label>
+                                <input type="number" id="declaredValue" min="0" step="0.01" placeholder="0.00">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="codAmount">مبلغ الدفع عند الاستلام (ج.م)</label>
+                                <input type="number" id="codAmount" min="0" step="0.01" placeholder="0.00">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sender Info -->
+                    <div class="form-section">
+                        <div class="section-title">
+                            <span class="section-icon">📤</span>
+                            <h3>بيانات المرسل</h3>
+                            <button type="button" class="secondary-btn small" onclick="fillSenderFromStore()">ملء من بيانات المتجر</button>
+                        </div>
+                        
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="senderName">اسم المرسل *</label>
+                                <input type="text" id="senderName" required placeholder="اسم المرسل الكامل">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="senderPhone">هاتف المرسل *</label>
+                                <input type="tel" id="senderPhone" required placeholder="01xxxxxxxxx" pattern="01[0-9]{9}">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="senderCity">مدينة المرسل *</label>
+                                <select id="senderCity" required>
+                                    <option value="">اختر المدينة</option>
+                                    <option value="cairo">القاهرة</option>
+                                    <option value="alexandria">الإسكندرية</option>
+                                    <option value="giza">الجيزة</option>
+                                    <option value="mansoura">المنصورة</option>
+                                    <option value="tanta">طنطا</option>
+                                    <option value="ismailia">الإسماعيلية</option>
+                                    <option value="suez">السويس</option>
+                                    <option value="luxor">الأقصر</option>
+                                    <option value="aswan">أسوان</option>
+                                    <option value="other">أخرى</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="senderArea">المنطقة *</label>
+                                <input type="text" id="senderArea" required placeholder="المنطقة / الحي">
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label for="senderAddress">العنوان التفصيلي *</label>
+                                <input type="text" id="senderAddress" required placeholder="الشارع، رقم المبنى، رقم الشقة">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Receiver Info -->
+                    <div class="form-section">
+                        <div class="section-title">
+                            <span class="section-icon">📥</span>
+                            <h3>بيانات المستلم</h3>
+                            <button type="button" class="secondary-btn small" onclick="showCustomerSearch()">اختر من العملاء</button>
+                        </div>
+                        
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label for="receiverName">اسم المستلم *</label>
+                                <input type="text" id="receiverName" required placeholder="اسم المستلم الكامل">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="receiverPhone">هاتف المستلم *</label>
+                                <input type="tel" id="receiverPhone" required placeholder="01xxxxxxxxx" pattern="01[0-9]{9}">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="receiverPhone2">هاتف بديل</label>
+                                <input type="tel" id="receiverPhone2" placeholder="هاتف احتياطي">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="receiverCity">مدينة المستلم *</label>
+                                <select id="receiverCity" required>
+                                    <option value="">اختر المدينة</option>
+                                    <option value="cairo">القاهرة</option>
+                                    <option value="alexandria">الإسكندرية</option>
+                                    <option value="giza">الجيزة</option>
+                                    <option value="mansoura">المنصورة</option>
+                                    <option value="tanta">طنطا</option>
+                                    <option value="ismailia">الإسماعيلية</option>
+                                    <option value="suez">السويس</option>
+                                    <option value="luxor">الأقصر</option>
+                                    <option value="aswan">أسوان</option>
+                                    <option value="other">أخرى</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="receiverArea">المنطقة *</label>
+                                <input type="text" id="receiverArea" required placeholder="المنطقة / الحي">
+                            </div>
+
+                            <div class="form-group full-width">
+                                <label for="receiverAddress">العنوان التفصيلي *</label>
+                                <input type="text" id="receiverAddress" required placeholder="الشارع، رقم المبنى، رقم الشقة">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="receiverNotes">ملاحظات خاصة</label>
+                                <textarea id="receiverNotes" rows="2" placeholder="ملاحظات للتوصيل..."></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Barcode Section -->
+                    <div class="form-section barcode-section">
+                        <div class="section-title">
+                            <span class="section-icon">▮▯▮▯▮</span>
+                            <h3>باركود الشحنة</h3>
+                        </div>
+                        
+                        <div class="barcode-container">
+                            <div class="barcode-input-group">
+                                <label for="trackingNumber">رقم التتبع</label>
+                                <div class="input-with-btn">
+                                    <input type="text" id="trackingNumber" readonly placeholder="سيتم توليده تلقائياً">
+                                    <button type="button" class="secondary-btn" onclick="generateTrackingNumber()">توليد</button>
+                                </div>
+                            </div>
+                            
+                            <div class="barcode-display" id="barcodeDisplay">
+                                <svg id="barcodeSvg"></svg>
+                                <p class="barcode-number" id="barcodeNumber"></p>
+                            </div>
+                            
+                            <div class="barcode-actions">
+                                <button type="button" class="secondary-btn" onclick="printBarcode()">
+                                    🖨️ طباعة الباركود
+                                </button>
+                                <button type="button" class="secondary-btn" onclick="downloadBarcode()">
+                                    💾 تحميل الباركود
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Form Actions -->
+                    <div class="form-actions">
+                        <button type="button" class="secondary-btn" onclick="clearForm()">
+                            مسح الكل
+                        </button>
+                        <button type="button" class="secondary-btn" onclick="saveAsDraft()">
+                            حفظ كمسودة
+                        </button>
+                        <button type="submit" class="primary-btn">
+                            ✅ إنشاء البوليصة
+                        </button>
+                    </div>
+                </form>
+            </section>
+
+            <!-- Tracking Tab -->
+            <section id="tracking" class="tab-content">
+                <div class="page-header">
+                    <h2>تتبع الشحنات</h2>
+                </div>
+
+                <div class="tracking-search">
+                    <div class="search-box large">
+                        <input type="text" id="trackingSearchInput" placeholder="أدخل رقم الشحنة أو رقم التتبع...">
+                        <button class="primary-btn" onclick="trackShipment()">
+                            🔍 تتبع
+                        </button>
+                    </div>
+                    
+                    <div class="quick-track-buttons">
+                        <span class="quick-label">تتبع سريع:</span>
+                        <button class="chip-btn" onclick="scanBarcodeForTracking()">📷 مسح باركود</button>
+                    </div>
+                </div>
+
+                <div id="trackingResult" class="tracking-result hidden">
+                    <div class="tracking-header">
+                        <div class="tracking-info">
+                            <h3 id="trackedShipmentNumber">SH-20260805-001</h3>
+                            <span class="status-badge" id="trackedStatus">قيد التوصيل</span>
+                        </div>
+                        <div class="tracking-actions">
+                            <button class="secondary-btn small" onclick="printWaybill()">🖨️ طباعة</button>
+                            <button class="secondary-btn small" onclick="shareTracking()">📤 مشاركة</button>
+                        </div>
+                    </div>
+
+                    <div class="timeline" id="trackingTimeline">
+                        <!-- Timeline items will be inserted here -->
+                    </div>
+
+                    <div class="shipment-details">
+                        <h4>تفاصيل الشحنة</h4>
+                        <div class="details-grid" id="shipmentDetailsGrid">
+                            <!-- Details will be inserted here -->
+                        </div>
+                    </div>
+                </div>
+
+                <div id="trackingEmpty" class="tracking-empty">
+                    <div class="empty-state large">
+                        <span class="empty-icon">🔍</span>
+                        <h3>تتبع شحنتك</h3>
+                        <p>أدخل رقم الشحنة لمعرفة حالة شحنتك وموقعها الحالي</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Customers Tab -->
+            <section id="customers" class="tab-content">
+                <div class="page-header">
+                    <h2>إدارة العملاء (CRM)</h2>
+                    <button class="primary-btn" onclick="showAddCustomerModal()">
+                        + إضافة عميل جديد
+                    </button>
+                </div>
+
+                <div class="customers-grid" id="customersGrid">
+                    <div class="empty-state large">
+                        <span class="empty-icon">👥</span>
+                        <h3>لا يوجد عملاء بعد</h3>
+                        <p>ابدأ بإضافة عملائك لإدارة شحناتهم بسهولة</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Settings Tab -->
+            <section id="settings" class="tab-content">
+                <div class="page-header">
+                    <h2>إعدادات المتجر</h2>
+                </div>
+
+                <div class="settings-container">
+                    <!-- Store Settings -->
+                    <div class="settings-card">
+                        <div class="settings-card-header">
+                            <span class="settings-icon">🏪</span>
+                            <h3>بيانات المتجر</h3>
+                        </div>
+                        <div class="settings-card-body">
+                            <div class="setting-group">
+                                <label>شعار المتجر</label>
+                                <div class="logo-upload">
+                                    <div class="logo-preview" id="logoPreview">
+                                        <span class="upload-placeholder">📷</span>
+                                        <img id="settingsLogoPreview" class="hidden" alt="معاينة الشعار">
+                                    </div>
+                                    <div class="upload-actions">
+                                        <input type="file" id="logoUpload" accept="image/*" onchange="handleLogoUpload(event)">
+                                        <button type="button" class="secondary-btn" onclick="document.getElementById('logoUpload').click()">
+                                            رفع شعار جديد
+                                        </button>
+                                        <button type="button" class="danger-btn small" onclick="removeLogo()">حذف</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="setting-group">
+                                <label for="settingsStoreName">اسم المتجر</label>
+                                <input type="text" id="settingsStoreName" placeholder="أدخل اسم متجرك">
+                            </div>
+
+                            <div class="setting-group">
+                                <label for="settingsStorePhone">هاتف المتجر</label>
+                                <input type="tel" id="settingsStorePhone" placeholder="رقم هاتف التواصل">
+                            </div>
+
+                            <div class="setting-group">
+                                <label for="settingsStoreEmail">بريد المتجر</label>
+                                <input type="email" id="settingsStoreEmail" placeholder="البريد الإلكتروني">
+                            </div>
+
+                            <div class="setting-group">
+                                <label for="settingsStoreAddress">عنوان المتجر</label>
+                                <textarea id="settingsStoreAddress" rows="2" placeholder="العنوان التفصيلي للمتجر"></textarea>
+                            </div>
+
+                            <button class="primary-btn" onclick="saveStoreSettings()">
+                                💾 حفظ الإعدادات
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Shipping Settings -->
+                    <div class="settings-card">
+                        <div class="settings-card-header">
+                            <span class="settings-icon">🚚</span>
+                            <h3>إعدادات الشحن</h3>
+                        </div>
+                        <div class="settings-card-body">
+                            <div class="setting-group">
+                                <label for="shippingCompany">شركة الشحن الافتراضية</label>
+                                <select id="shippingCompany">
+                                    <option value="bosta">بوسطة (Bosta)</option>
+                                    <option value="aramex">أرامكس (Aramex)</option>
+                                    <option value="smsa">سمسا (SMSA)</option>
+                                    <option value="dhl">DHL</option>
+                                    <option value="custom">شركة أخرى</option>
+                                </select>
+                            </div>
+
+                            <div class="setting-group">
+                                <label for="defaultCity">المدينة الافتراضية للشحن</label>
+                                <select id="defaultCity">
+                                    <option value="cairo">القاهرة</option>
+                                    <option value="alexandria">الإسكندرية</option>
+                                    <option value="giza">الجيزة</option>
+                                    <option value="other">أخرى</option>
+                                </select>
+                            </div>
+
+                            <div class="setting-group">
+                                <label for="defaultPackageType">نوع الطرد الافتراضي</label>
+                                <select id="defaultPackageType">
+                                    <option value="box">صندوق صغير</option>
+                                    <option value="large_box">صندوق كبير</option>
+                                    <option value="envelope">مظروف</option>
+                                </select>
+                            </div>
+
+                            <div class="setting-group toggle-setting">
+                                <div>
+                                    <label>إرسال إشعار SMS</label>
+                                    <small>إرسال رسائل نصية للعملاء عند تحديث حالة الشحنة</small>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="enableSMS" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+
+                            <div class="setting-group toggle-setting">
+                                <div>
+                                    <label>طباعة تلقائية للباركود</label>
+                                    <small>طباعة الباركود تلقائياً بعد إنشاء البوليصة</small>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="autoPrintBarcode">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Data Management -->
+                    <div class="settings-card">
+                        <div class="settings-card-header">
+                            <span class="settings-icon">💾</span>
+                            <h3>إدارة البيانات</h3>
+                        </div>
+                        <div class="settings-card-body">
+                            <div class="data-actions">
+                                <button class="secondary-btn" onclick="exportAllData()">
+                                    📤 تصدير جميع البيانات
+                                </button>
+                                <button class="secondary-btn" onclick="document.getElementById('importFile').click()">
+                                    📥 استيراد بيانات
+                                </button>
+                                <input type="file" id="importFile" accept=".json" onchange="importData(event)" class="hidden">
+                                <button class="danger-btn" onclick="confirmClearData()">
+                                    🗑️ مسح جميع البيانات
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- App Info -->
+                    <div class="settings-card">
+                        <div class="settings-card-header">
+                            <span class="settings-icon">ℹ️</span>
+                            <h3>عن التطبيق</h3>
+                        </div>
+                        <div class="settings-card-body app-info">
+                            <div class="app-version">
+                                <span>الإصدار:</span>
+                                <strong>2.0.0</strong>
+                            </div>
+                            <div class="app-pwa-status">
+                                <span>حالة التطبيق:</span>
+                                <strong id="pwaStatus">جاري الفحص...</strong>
+                            </div>
+                            <div class="app-offline-status">
+                                <span>وضع عدم الاتصال:</span>
+                                <strong id="offlineStatus">متصل</strong>
+                            </div>
+                            <button class="secondary-btn small" onclick="checkForUpdates()">
+                                🔄 التحقق من تحديثات
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Modals -->
+    <!-- Customer Search Modal -->
+    <div id="customerModal" class="modal hidden">
+        <div class="modal-overlay" onclick="closeModal('customerModal')"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>اختر عميل</h3>
+                <button class="close-btn" onclick="closeModal('customerModal')">✕</button>
+            </div>
+            <div class="modal-body">
+                <input type="text" id="customerSearchInput" class="search-input" placeholder="ابحث عن عميل..." oninput="searchCustomers(this.value)">
+                <div id="customerSearchResults" class="customer-results">
+                    <!-- Results will be populated here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Customer Modal -->
+    <div id="addCustomerModal" class="modal hidden">
+        <div class="modal-overlay" onclick="closeModal('addCustomerModal')"></div>
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>إضافة عميل جديد</h3>
+                <button class="close-btn" onclick="closeModal('addCustomerModal')">✕</button>
+            </div>
+            <div class="modal-body">
+                <form id="customerForm" onsubmit="saveCustomer(event)">
+                    <div class="form-group">
+                        <label for="custName">اسم العميل *</label>
+                        <input type="text" id="custName" required placeholder="اسم العميل الكامل">
+                    </div>
+                    <div class="form-group">
+                        <label for="custPhone">الهاتف *</label>
+                        <input type="tel" id="custPhone" required placeholder="01xxxxxxxxx">
+                    </div>
+                    <div class="form-group">
+                        <label for="custEmail">البريد الإلكتروني</label>
+                        <input type="email" id="custEmail" placeholder="example@email.com">
+                    </div>
+                    <div class="form-group">
+                        <label for="custCompany">الشركة</label>
+                        <input type="text" id="custCompany" placeholder="اسم الشركة">
+                    </div>
+                    <div class="form-group">
+                        <label for="custAddress">العنوان</label>
+                        <textarea id="custAddress" rows="2" placeholder="العنوان التفصيلي"></textarea>
+                    </div>
+                    <div class="form-group">
+                        <label for="custNotes">ملاحظات</label>
+                        <textarea id="custNotes" rows="2" placeholder="ملاحظات إضافية"></textarea>
+                    </div>
+                    <div class="modal-actions">
+                        <button type="button" class="secondary-btn" onclick="closeModal('addCustomerModal')">إلغاء</button>
+                        <button type="submit" class="primary-btn">حفظ العميل</button>
+                    </div>
                 </form>
             </div>
         </div>
     </div>
 
-    <!-- Initial Loader -->
-    <div id="app-loader" class="app-loader hidden">
-        <div class="spinner"></div>
-        <h2 data-i18n="loading">جاري تهيئة النظام...</h2>
-    </div>
-
-    <div id="app-container" class="hidden">
-        <!-- Sidebar -->
-        <aside class="sidebar" id="sidebar">
-            <div class="sidebar-header">
-                <div class="logo-icon"><i class='bx bx-cube-alt'></i></div>
-                <h2 class="logo-text">SaaS OMS</h2>
-                <i class='bx bx-menu toggle-btn' id="toggle-sidebar"></i>
+    <!-- Shipment Details Modal -->
+    <div id="shipmentModal" class="modal hidden">
+        <div class="modal-overlay" onclick="closeModal('shipmentModal')"></div>
+        <div class="modal-content large">
+            <div class="modal-header">
+                <h3>تفاصيل الشحنة</h3>
+                <button class="close-btn" onclick="closeModal('shipmentModal')">✕</button>
             </div>
-            <ul class="nav-links">
-                <li class="active"><a href="#" data-route="dashboard"><i class='bx bx-grid-alt'></i><span class="link-name" data-i18n="dashboard">لوحة القيادة</span></a></li>
-                <li><a href="#" data-route="orders"><i class='bx bx-cart'></i><span class="link-name" data-i18n="orders">الطلبات</span></a></li>
-                <li><a href="#" data-route="products"><i class='bx bx-box'></i><span class="link-name" data-i18n="products">المنتجات</span></a></li>
-                <li><a href="#" data-route="inventory"><i class='bx bx-store'></i><span class="link-name" data-i18n="inventory">المخزون</span></a></li>
-                <li><a href="#" data-route="crm"><i class='bx bx-user-pin'></i><span class="link-name" data-i18n="crm">العملاء (CRM)</span></a></li>
-                <li><a href="#" data-route="reports"><i class='bx bx-pie-chart-alt-2'></i><span class="link-name" data-i18n="reports">التقارير</span></a></li>
-                <li><a href="#" data-route="settings"><i class='bx bx-cog'></i><span class="link-name" data-i18n="settings">الإعدادات</span></a></li>
-            </ul>
-        </aside>
-
-        <!-- Main Content -->
-        <main class="main-content">
-            <!-- Top Navbar -->
-            <header class="top-nav">
-                <div class="search-box">
-                    <i class='bx bx-search'></i>
-                    <input type="text" placeholder="البحث برقم الطلب، العميل..." data-i18n-ph="searchPlaceholder">
-                </div>
-                <div class="nav-actions">
-                    <button class="icon-btn" id="theme-toggle" title="تغيير المظهر"><i class='bx bx-moon'></i></button>
-                    <button class="icon-btn" id="lang-toggle" title="تغيير اللغة">EN</button>
-                    <div class="notification-bell">
-                        <i class='bx bx-bell'></i>
-                        <span class="badge">0</span>
-                    </div>
-                    <div class="profile-dropdown">
-                        <img src="https://ui-avatars.com/api/?name=User&background=2563eb&color=fff" alt="Profile" class="profile-img" id="user-avatar">
-                        <span class="profile-name" id="user-name">المستخدم</span>
-                        <i class='bx bx-log-out' id="btn-logout" title="تسجيل الخروج" style="cursor:pointer; margin-right:5px; color: var(--danger);"></i>
-                    </div>
-                </div>
-            </header>
-
-            <!-- Dynamic View Container -->
-            <section class="view-container" id="view-container">
-                <!-- Content injected here via JS -->
-            </section>
-        </main>
+            <div class="modal-body" id="shipmentModalBody">
+                <!-- Content will be populated dynamically -->
+            </div>
+        </div>
     </div>
 
-    <div id="toast-container" class="toast-container"></div>
+    <!-- Barcode Scanner Modal -->
+    <div id="scannerModal" class="modal hidden">
+        <div class="modal-overlay" onclick="closeScanner()"></div>
+        <div class="modal-content scanner-content">
+            <div class="modal-header">
+                <h3>ماسح الباركود</h3>
+                <button class="close-btn" onclick="closeScanner()">✕</button>
+            </div>
+            <div class="modal-body scanner-body">
+                <div class="scanner-viewfinder">
+                    <video id="scannerVideo" autoplay playsinline></video>
+                    <div class="scanner-overlay">
+                        <div class="scan-line"></div>
+                    </div>
+                </div>
+                <div class="scanner-result" id="scannerResult">
+                    <p>وجه الكاميرا نحو الباركود</p>
+                </div>
+                <div class="scanner-actions">
+                    <button class="secondary-btn" onclick="toggleCamera()">🔄 تبديل الكاميرا</button>
+                    <input type="file" id="barcodeImageInput" accept="image/*" onchange="scanBarcodeFromImage(event)" class="hidden">
+                    <button class="secondary-btn" onclick="document.getElementById('barcodeImageInput').click()">📷 من الصور</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
-    <!-- Firebase SDKs (Modular) -->
-    <script type="module" src="js/app.js"></script>
+    <!-- Toast Notifications -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay hidden">
+        <div class="spinner"></div>
+        <p>جاري التحميل...</p>
+    </div>
+
+    <!-- Print Template (Hidden) -->
+    <div id="printTemplate" class="print-template">
+        <div class="waybill-print" id="waybillPrintContent">
+            <!-- Print content will be generated dynamically -->
+        </div>
+    </div>
+
+    <!-- Main Script -->
+    <script src="app.js"></script>
 </body>
 </html>

@@ -1,397 +1,450 @@
-import { t } from '../core/i18n.js';
-import { db, ref, onValue, set, push, remove, get } from '../core/firebase-config.js';
-import { showToast } from '../components/ui.js';
+/**
+ * ===================================
+ * Products View Module
+ * ===================================
+ */
 
-let currentProducts = [];
+const Products = {
+    currentView: 'grid', // 'grid' or 'list'
+    searchQuery: '',
+    categoryFilter: 'all',
 
-export function renderProducts(container) {
-    container.innerHTML = `
-        <div class="view-content">
-            <div class="table-container">
-                <div class="table-header-actions">
-                    <h2><i class='bx bx-box'></i> ${t('products')}</h2>
-                    <div style="display:flex;gap:10px;align-items:center;">
-                        <div class="table-filters">
-                            <select class="filter-select" id="product-category-filter" onchange="filterProducts()">
-                                <option value="">${t('allAll')} ${t('category')}</option>
-                                <option value="electronics">إلكترونيات</option>
-                                <option value="clothing">ملابس</option>
-                                <option value="food">أغذية</option>
-                                <option value="other">أخرى</option>
-                            </select>
-                        </div>
-                        <button class="btn-primary" onclick="openProductModal()">
-                            <i class='bx bx-plus'></i> ${t('addProduct')}
-                        </button>
+    /**
+     * Render Products View
+     */
+    render(container) {
+        container.innerHTML = `
+            <div class="view-content">
+                <div class="page-header">
+                    <div class="header-content">
+                        <h1 class="page-title"><i class='bx bx-box'></i> المنتجات</h1>
+                        <p class="page-subtitle">إدارة منتجات المتجر والأسعار</p>
                     </div>
+                    <button class="btn-primary" onclick="Products.openCreateModal()">
+                        <i class='bx bx-plus'></i> إضافة منتج
+                    </button>
                 </div>
 
-                <!-- Search -->
-                <div style="padding: 15px 22px; border-bottom: 1px solid var(--border-color);">
-                    <input type="text" class="filter-input" style="width:100%;max-width:350px;" 
-                           placeholder="${t('searchPlaceholder')}..." id="products-search" oninput="filterProducts()">
-                </div>
+                <div class="filters-bar">
+                    <div class="search-box flex-1">
+                        <i class='bx bx-search'></i>
+                        <input type="text" placeholder="بحث بالاسم، SKU، الفئة..." 
+                               onkeyup="if(event.key==='Enter')Products.search(this.value)">
+                    </div>
+                    
+                    <select class="filter-select" onchange="Products.filterByCategory(this.value)">
+                        <option value="all">كل الفئات</option>
+                        <option value="clothing">ملابس</option>
+                        <option value="electronics">إلكترونيات</option>
+                        <option value="accessories">إكسسوارات</option>
+                        <option value="other">أخرى</option>
+                    </select>
 
-                <!-- Products Grid View Toggle -->
-                <div style="padding: 12px 22px; display:flex; justify-content: space-between; align-items:center; border-bottom:1px solid var(--border-color);">
-                    <span style="font-size:13px;color:var(--text-secondary);">
-                        <span id="products-count">0</span> منتج
-                    </span>
-                    <div style="display:flex;gap:8px;">
-                        <button class="icon-btn active" id="view-grid-btn" onclick="setProductView('grid')" title="Grid View">
+                    <div class="view-toggle">
+                        <button class="icon-btn ${this.currentView === 'grid' ? 'active' : ''}" 
+                                onclick="Products.setView('grid')" title="شبكة">
                             <i class='bx bx-grid-alt'></i>
                         </button>
-                        <button class="icon-btn" id="view-list-btn" onclick="setProductView('list')" title="List View">
+                        <button class="icon-btn ${this.currentView === 'list' ? 'active' : ''}" 
+                                onclick="Products.setView('list')" title="قائمة">
                             <i class='bx bx-list-ul'></i>
                         </button>
                     </div>
                 </div>
 
-                <!-- Grid View -->
-                <div id="products-grid-view" style="padding: 20px; display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 18px;"></div>
-
-                <!-- Table View -->
-                <table id="products-table-view" style="display:none;">
-                    <thead>
-                        <tr>
-                            <th>الصورة</th>
-                            <th>${t('productName')}</th>
-                            <th>${t('sku')}</th>
-                            <th>${t('category')}</th>
-                            <th>${t('price')}</th>
-                            <th>${t('stock')}</th>
-                            <th>${t('action')}</th>
-                        </tr>
-                    </thead>
-                    <tbody id="products-body">
-                        <tr><td colspan="7" style="text-align:center;padding:40px;"><div class="spinner"></div></td></tr>
-                    </tbody>
-                </table>
+                <div id="products-container">
+                    ${this.renderProducts()}
+                </div>
             </div>
-        </div>
-    `;
+        `;
+    },
 
-    // Fetch products
-    const productsRef = ref(db, 'products');
-    onValue(productsRef, (snapshot) => {
-        const data = snapshot.val();
-        if(data) {
-            currentProducts = Object.entries(data).map(([key, val]) => ({...val, _key: key}));
-            document.getElementById('products-count').innerText = currentProducts.length;
-            displayProductList(currentProducts);
-        } else {
-            currentProducts = [];
-            document.getElementById('products-count').innerText = '0';
-            showEmptyState();
+    renderProducts() {
+        let products = Utils.storage.get('products', []);
+
+        if (this.categoryFilter !== 'all') {
+            products = products.filter(p => p.category === this.categoryFilter);
         }
-    });
-}
 
-/**
- * Display products in Grid and Table views
- * @param {Array} products - Array of product objects
- */
-function displayProductList(products) {
-    const gridView = document.getElementById('products-grid-view');
-    const tableView = document.getElementById('products-table-view');
-    const tbody = document.getElementById('products-body');
-    
-    if(products.length === 0) {
-        showEmptyState();
-        return;
-    }
-
-    // Grid View
-    gridView.innerHTML = products.map(product => `
-        <div class="inventory-card ${product.stock <= 5 ? 'low-stock' : ''} ${product.stock === 0 ? 'out-of-stock' : ''}">
-            <div class="inventory-card-header">
-                <div>
-                    <div class="inventory-card-title">${product.name}</div>
-                    <div class="inventory-card-sku">${t('sku')}: ${product.sku || '-'}</div>
-                </div>
-                <span class="badge badge-${getStockBadgeClass(product.stock)}">${getStockText(product.stock)}</span>
-            </div>
-            <div style="text-align:center;margin:15px 0;">
-                <img src="${product.imageUrl || 'https://via.placeholder.com/150?text=No+Image'}" 
-                     alt="${product.name}" 
-                     style="width:100%;max-height:150px;object-fit:cover;border-radius:var(--radius-md);"
-                     onerror="this.src='https://via.placeholder.com/150?text=No+Image'">
-            </div>
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-                <span style="font-size:20px;font-weight:700;color:var(--primary);">${Number(product.price).toLocaleString()} <small style="font-size:12px;">${t('currency')}</small></span>
-                <span style="font-size:12px;color:var(--text-secondary);">${getCategoryName(product.category)}</span>
-            </div>
-            <div class="stock-indicator">
-                <span style="font-size:12px;color:var(--text-secondary);">المخزون:</span>
-                <div class="stock-bar">
-                    <div class="stock-fill" style="width:${Math.min(product.stock * 2, 100)}%;background:${getStockColor(product.stock)}"></div>
-                </div>
-                <span class="stock-text" style="color:${getStockColor(product.stock)}">${product.stock}</span>
-            </div>
-            <div style="display:flex;gap:8px;margin-top:15px;">
-                <button class="btn-primary btn-sm" style="flex:1;" onclick="openProductModal('${product._key}')">
-                    <i class='bx bx-edit'></i> ${t('edit')}
-                </button>
-                <button class="btn-danger btn-sm" onclick="deleteProduct('${product._key}')" style="background:var(--danger);color:white;border:none;padding:8px 12px;border-radius:6px;cursor:pointer;">
-                    <i class='bx bx-trash'></i>
-                </button>
-            </div>
-        </div>
-    `).join('');
-
-    // Table View
-    tbody.innerHTML = products.map(product => `
-        <tr>
-            <td><img src="${product.imageUrl || 'https://via.placeholder.com/40'}" style="width:45px;height:45px;border-radius:8px;object-fit:cover;" onerror="this.src='https://via.placeholder.com/40'"></td>
-            <td><strong>${product.name}</strong><br><small style="color:var(--text-secondary)">${product.description?.substring(0, 50) || ''}...</small></td>
-            <td><code>${product.sku || '-'}</code></td>
-            <td><span class="badge badge-primary">${getCategoryName(product.category)}</span></td>
-            <td style="font-weight:600;color:var(--primary);">${Number(product.price).toLocaleString()} ${t('currency')}</td>
-            <td>
-                <span class="badge badge-${getStockBadgeClass(product.stock)}">${product.stock} قطعة</span>
-            </td>
-            <td>
-                <div class="action-btns">
-                    <button class="icon-btn edit" onclick="openProductModal('${product._key}')"><i class='bx bx-edit'></i></button>
-                    <button class="icon-btn delete" onclick="deleteProduct('${product._key}')"><i class='bx bx-trash'></i></button>
-                </div>
-            </td>
-        </tr>
-    `).join('');
-}
-
-function showEmptyState() {
-    const gridView = document.getElementById('products-grid-view');
-    const tableView = document.getElementById('products-table-view');
-    const tbody = document.getElementById('products-body');
-    
-    gridView.innerHTML = `
-        <div class="empty-state" style="grid-column:1/-1;">
-            <i class='bx bx-package'></i>
-            <h3>${t('noProducts')}</h3>
-            <p>ابدأ بإضافة منتجاتك الأولى إلى النظام</p>
-            <button class="btn-primary" onclick="openProductModal()" style="margin-top:15px;">
-                <i class='bx bx-plus'></i> ${t('addProduct')}
-            </button>
-        </div>`;
-    tbody.innerHTML = `<tr><td colspan="7"><div class="empty-state"><p>${t('noProducts')}</p></div></td></tr>`;
-}
-
-// Helper functions
-function getStockColor(stock) {
-    if(stock === 0) return 'var(--danger)';
-    if(stock <= 5) return 'var(--warning)';
-    return 'var(--success)';
-}
-
-function getStockBadgeClass(stock) {
-    if(stock === 0) return 'danger';
-    if(stock <= 5) return 'warning';
-    return 'success';
-}
-
-function getStockText(stock) {
-    if(stock === 0) return t('outOfStock');
-    if(stock <= 5) return t('lowStock');
-    return t('inStock');
-}
-
-function getCategoryName(cat) {
-    const categories = { electronics: 'إلكترونيات', clothing: 'ملابس', food: 'أغذية', other: 'أخرى' };
-    return categories[cat] || cat || 'بدون تصنيف';
-}
-
-// Global functions
-window.filterProducts = function() {
-    const categoryFilter = document.getElementById('product-category-filter').value;
-    const searchTerm = document.getElementById('products-search').value.toLowerCase();
-    
-    let filtered = currentProducts;
-    
-    if(categoryFilter) {
-        filtered = filtered.filter(p => p.category === categoryFilter);
-    }
-    
-    if(searchTerm) {
-        filtered = filtered.filter(p => 
-            p.name.toLowerCase().includes(searchTerm) || 
-            (p.sku && p.sku.toLowerCase().includes(searchTerm))
-        );
-    }
-    
-    displayProductList(filtered);
-};
-
-window.setProductView = function(view) {
-    const gridView = document.getElementById('products-grid-view');
-    const tableView = document.getElementById('products-table-view');
-    const gridBtn = document.getElementById('view-grid-btn');
-    const listBtn = document.getElementById('view-list-btn');
-    
-    if(view === 'grid') {
-        gridView.style.display = 'grid';
-        tableView.style.display = 'none';
-        gridBtn.classList.add('active');
-        listBtn.classList.remove('active');
-    } else {
-        gridView.style.display = 'none';
-        tableView.style.display = 'table';
-        listBtn.classList.add('active');
-        gridBtn.classList.remove('active');
-    }
-};
-
-window.openProductModal = function(productKey = null) {
-    const isEdit = !!productKey;
-    let product = null;
-    
-    if(isEdit) {
-        product = currentProducts.find(p => p._key === productKey);
-    }
-    
-    const modal = document.createElement('div');
-    modal.className = 'modal-overlay';
-    modal.innerHTML = `
-        <div class="modal" style="max-width:600px;">
-            <div class="modal-header">
-                <h3><i class='bx ${isEdit ? 'bx-edit' : 'bx-plus-circle'}'></i> ${isEdit ? t('edit') + ' ' + t('products') : t('addProduct')}</h3>
-                <button class="modal-close" onclick="this.closest('.modal-overlay').remove()">
-                    <i class='bx bx-x'></i>
-                </button>
-            </div>
-            <div class="modal-body">
-                <form id="product-form">
-                    <div class="form-group">
-                        <label>${t('productName')} *</label>
-                        <input type="text" class="form-control" name="name" required 
-                               value="${product?.name || ''}" placeholder="اسم المنتج">
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>${t('sku')}</label>
-                            <input type="text" class="form-control" name="sku" 
-                                   value="${product?.sku || ''}" placeholder="PRD-001">
-                        </div>
-                        <div class="form-group">
-                            <label>${t('category')}</label>
-                            <select class="form-control" name="category">
-                                <option value="">اختر الفئة</option>
-                                <option value="electronics" ${product?.category === 'electronics' ? 'selected' : ''}>إلكترونيات</option>
-                                <option value="clothing" ${product?.category === 'clothing' ? 'selected' : ''}>ملابس</option>
-                                <option value="food" ${product?.category === 'food' ? 'selected' : ''}>أغذية</option>
-                                <option value="other" ${product?.category === 'other' ? 'selected' : ''}>أخرى</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>${t('price')} *</label>
-                            <input type="number" class="form-control" name="price" required 
-                                   value="${product?.price || ''}" placeholder="0.00" step="0.01">
-                        </div>
-                        <div class="form-group">
-                            <label>${t('stock')} *</label>
-                            <input type="number" class="form-control" name="stock" required 
-                                   value="${product?.stock || ''}" placeholder="0">
-                        </div>
-                    </div>
-                    <div class="form-group">
-                        <label>${t('description')}</label>
-                        <textarea class="form-control" name="description" rows="3" 
-                                  placeholder="وصف المنتج...">${product?.description || ''}</textarea>
-                    </div>
-                    <div class="form-group">
-                        <label>${t('image')} URL (R2 / Cloudinary)</label>
-                        <input type="url" class="form-control" name="imageUrl" 
-                               value="${product?.imageUrl || ''}" placeholder="https://...">
-                        <small style="color:var(--text-secondary);margin-top:4px;display:block;">
-                            <i class='bx bx-cloud'></i> Images are stored on Cloudflare R2
-                        </small>
-                    </div>
-                    
-                    <!-- Image Preview -->
-                    <div id="image-preview" style="margin-top:10px;text-align:center;display:none;">
-                        <img src="" alt="Preview" style="max-width:100%;max-height:200px;border-radius:var(--radius-md);object-fit:contain;background:var(--bg-main);padding:10px;">
-                    </div>
-                </form>
-            </div>
-            <div class="modal-footer">
-                <button class="btn-outline btn-sm" onclick="this.closest('.modal-overlay').remove()">${t('cancel')}</button>
-                <button class="btn-primary btn-sm" onclick="saveProduct('${productKey || ''}')">
-                    <i class='bx bx-save'></i> ${t('save')}
-                </button>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(modal);
-
-    // Image preview functionality
-    const imageUrlInput = modal.querySelector('input[name="imageUrl"]');
-    const imagePreview = modal.querySelector('#image-preview img');
-    const imagePreviewContainer = modal.querySelector('#image-preview');
-    
-    imageUrlInput.addEventListener('change', function() {
-        if(this.value) {
-            imagePreview.src = this.value;
-            imagePreviewContainer.style.display = 'block';
-        } else {
-            imagePreviewContainer.style.display = 'none';
+        if (this.searchQuery) {
+            const q = this.searchQuery.toLowerCase();
+            products = products.filter(p => 
+                (p.name || '').toLowerCase().includes(q) ||
+                (p.sku || '').toLowerCase().includes(q)
+            );
         }
-    });
+
+        if (products.length === 0) {
+            return `
+                <div class="empty-state">
+                    <i class='bx bx-box empty-state-icon'></i>
+                    <h3 class="empty-state-title">لا توجد منتجات</h3>
+                    <p class="empty-state-description">ابدأ بإضافة منتجاتك الأولى</p>
+                    <button class="btn-primary" onclick="Products.openCreateModal()">
+                        <i class='bx bx-plus'></i> إضافة منتج جديد
+                    </button>
+                </div>
+            `;
+        }
+
+        if (this.currentView === 'grid') {
+            return `
+                <div class="products-grid">
+                    ${products.map(p => this.renderProductCard(p)).join('')}
+                </div>
+            `;
+        } else {
+            return `
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>المنتج</th>
+                                <th>SKU</th>
+                                <th>الفئة</th>
+                                <th>السعر</th>
+                                <th>المخزون</th>
+                                <th>الحالة</th>
+                                <th>إجراءات</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${products.map(p => this.renderProductRow(p)).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        }
+    },
+
+    renderProductCard(product) {
+        const stockStatus = product.stock <= (product.lowStockThreshold || 10) ? 'low' : 
+                             product.stock > 0 ? 'available' : 'out';
+        
+        return `
+            <div class="card product-card hover-lift">
+                <div class="product-image">
+                    ${product.image 
+                        ? `<img src="${product.image}" alt="${product.name}">` 
+                        : '<i class=\'bx bx-box\' style="font-size:48px;color:var(--text-tertiary);"></i>'}
+                    <span class="status-badge status-${stockStatus === 'low' ? 'warning' : stockStatus === 'out' ? 'danger' : 'success'}">
+                        ${stockStatus === 'low' ? 'مخزون منخفض' : stockStatus === 'out' ? 'نفذ' : 'متوفر'}
+                    </span>
+                </div>
+                <div class="card-body" style="padding:16px;">
+                    <h3 style="font-size:16px;margin-bottom:4px;">${product.name}</h3>
+                    <p style="font-size:12px;color:var(--text-secondary);margin-bottom:8px;">
+                        ${product.category || '-'} • ${product.brand || '-'}
+                    </p>
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <span style="font-weight:bold;font-size:18px;color:var(--primary);">
+                            ${Utils.formatCurrency(product.price)}
+                        </span>
+                        <span style="font-size:13px;color:var(--text-secondary);">
+                            متبقي: <strong>${product.stock || 0}</strong>
+                        </span>
+                    </div>
+                </div>
+                <div class="card-footer" style="display:flex;gap:8px;padding:12px;">
+                    <button class="btn-outline btn-sm" onclick="Products.editProduct('${product.id}')" style="flex:1;">
+                        <i class='bx bx-edit'></i> تعديل
+                    </button>
+                    <button class="btn-danger btn-sm" onclick="Products.deleteProduct('${product.id}')">
+                        <i class='bx bx-trash'></i>
+                    </button>
+                </div>
+            </div>
+        `;
+    },
+
+    renderProductRow(product) {
+        const stockStatus = product.stock <= (product.lowStockThreshold || 10) ? 'low' : 
+                             product.stock > 0 ? 'available' : 'out';
+        
+        return `
+            <tr>
+                <td>
+                    <div style="display:flex;align-items:center;gap:10px;">
+                        ${product.image 
+                            ? `<img src="${product.image}" style="width:40px;height:40px;border-radius:6px;object-fit:cover;">` 
+                            : ''}
+                        <strong>${product.name}</strong>
+                    </div>
+                </td>
+                <td dir="ltr">${product.sku || '-'}</td>
+                <td>${this.getCategoryText(product.category)}</td>
+                <td><strong>${Utils.formatCurrency(product.price)}</strong></td>
+                <td>
+                    <span class="${stockStatus !== 'available' ? 'color:var(--warning);font-weight:bold;' : ''}">
+                        ${product.stock || 0}
+                    </span>
+                </td>
+                <td><span class="status-badge status-${stockStatus}">${this.getStockStatusText(stockStatus)}</span></td>
+                <td>
+                    <div class="row-actions">
+                        <button class="shipment-action-btn" onclick="Products.editProduct('${product.id}')"><i class='bx bx-edit'></i></button>
+                        <button class="shipment-action-btn" style="color:var(--danger);" onclick="Products.deleteProduct('${product.id}')"><i class='bx bx-trash'></i></button>
+                    </div>
+                </td>
+            </tr>
+        `;
+    },
+
+    openCreateModal(productId = null) {
+        const isEdit = !!productId;
+        const product = productId ? Utils.storage.get('products', []).find(p => p.id === productId) : null;
+
+        const modalHtml = `
+            <div id="product-modal" class="modal-overlay">
+                <div class="modal modal-lg">
+                    <div class="modal-header modal-gradient">
+                        <h3><i class='bx ${isEdit ? 'bx-edit' : 'bx-package'}'></i> 
+                            ${isEdit ? 'تعديل المنتج' : 'إضافة منتج جديد'}
+                        </h3>
+                        <button class="btn-close" onclick="closeModal('product-modal')">&times;</button>
+                    </div>
+                    <div class="modal-body">
+                        <form id="product-form">
+                            <!-- Image Upload -->
+                            <div class="form-group">
+                                <label><i class='bx bx-image'></i> صورة المنتج</label>
+                                <div class="logo-upload" id="product-image-upload">
+                                    <input type="file" id="product-image" accept="image/*" onchange="Products.previewImage(this)">
+                                    <div class="upload-placeholder" id="product-image-preview">
+                                        ${product?.image 
+                                            ? `<img src="${product.image}" alt="Preview" style="max-width:100%;max-height:120px;object-fit:contain;">`
+                                            : '<i class=\'bx bx-cloud-upload\' style="font-size:36px;"></i><span>اضغط لرفع الصورة</span>'}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Basic Info -->
+                            <div class="form-row">
+                                <div class="form-group flex-2">
+                                    <label>اسم المنتج *</label>
+                                    <input type="text" id="product-name" required value="${product?.name || ''}"
+                                           placeholder="مثال: تيشيرت قطني">
+                                </div>
+                                <div class="form-group flex-1">
+                                    <label>SKU / الرمز</label>
+                                    <input type="text" id="product-sku" value="${product?.sku || ''}"
+                                           placeholder="TSH-001">
+                                </div>
+                            </div>
+
+                            <div class="form-row">
+                                <div class="form-group flex-1">
+                                    <label>الفئة</label>
+                                    <select id="product-category">
+                                        <option value="">اختر الفئة</option>
+                                        <option value="clothing" ${product?.category === 'clothing' ? 'selected' : ''}>ملابس</option>
+                                        <option value="electronics" ${product?.category === 'electronics' ? 'selected' : ''}>إلكترونيات</option>
+                                        <option value="accessories" ${product?.category === 'accessories' ? 'selected' : ''}>إكسسوارات</option>
+                                        <option value="other" ${product?.category === 'other' ? 'selected' : ''}>أخرى</option>
+                                    </select>
+                                </div>
+                                <div class="form-group flex-1">
+                                    <label>الماركة</label>
+                                    <input type="text" id="product-brand" value="${product?.brand || ''}"
+                                           placeholder="Nike, Adidas...">
+                                </div>
+                            </div>
+
+                            <!-- Pricing -->
+                            <div class="form-row">
+                                <div class="form-group flex-1">
+                                    <label>سعر الشراء *</label>
+                                    <input type="number" id="product-cost" required value="${product?.cost || 0}" min="0"
+                                           onchange="Products.calculateProfit()">
+                                </div>
+                                <div class="form-group flex-1">
+                                    <label>سعر البيع *</label>
+                                    <input type="number" id="product-price" required value="${product?.price || 0}" min="0"
+                                           onchange="Products.calculateProfit()">
+                                </div>
+                            </div>
+
+                            <div id="profit-display" style="display:none;padding:12px;background:var(--success-light);border-radius:8px;margin-bottom:16px;">
+                                <strong>هامش الربح:</strong> <span id="profit-value">0 ج.م</span>
+                                (<span id="profit-percent">0%</span>)
+                            </div>
+
+                            <!-- Inventory -->
+                            <div class="form-row">
+                                <div class="form-group flex-1">
+                                    <label>الكمية في المخزون</label>
+                                    <input type="number" id="product-stock" value="${product?.stock || 0}" min="0">
+                                </div>
+                                <div class="form-group flex-1">
+                                    <label>حد التنبيه المنخفض</label>
+                                    <input type="number" id="product-low-stock" value="${product?.lowStockThreshold || 10}" min="0">
+                                </div>
+                            </div>
+
+                            <!-- Description -->
+                            <div class="form-group">
+                                <label>وصف المنتج</label>
+                                <textarea id="product-description" rows="3"
+                                          placeholder="وصف تفصيلي للمنتج...">${product?.description || ''}</textarea>
+                            </div>
+
+                            <div class="form-actions">
+                                <button type="button" class="btn-outline" onclick="closeModal('product-modal')">إلغاء</button>
+                                <button type="submit" class="btn-primary">
+                                    <i class='bx ${isEdit ? 'bx-check' : 'bx-plus'}'></i> 
+                                    ${isEdit ? 'حفظ التعديلات' : 'إضافة المنتج'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
+        openModal('product-modal');
+
+        document.getElementById('product-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.saveProduct(productId);
+        });
+
+        // Cleanup
+        setTimeout(() => {
+            const modal = document.getElementById('product-modal');
+            if (modal) {
+                const obs = new MutationObserver(() => {
+                    if (modal.classList.contains('hidden')) { setTimeout(() => modal.remove(), 300); obs.disconnect(); }
+                });
+                obs.observe(modal, { attributes: true });
+            }
+        }, 100);
+    },
+
+    previewImage(input) {
+        if (input.files && input.files[0]) {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                document.getElementById('product-image-preview').innerHTML = 
+                    `<img src="${e.target.result}" alt="Preview" style="max-width:100%;max-height:120px;object-fit:contain;">`;
+                document.getElementById('product-image-preview').classList.add('has-image');
+            };
+            reader.readAsDataURL(input.files[0]);
+        }
+    },
+
+    calculateProfit() {
+        const cost = parseFloat(document.getElementById('product-cost')?.value) || 0;
+        const price = parseFloat(document.getElementById('product-price')?.value) || 0;
+        const profit = price - cost;
+        const percent = cost > 0 ? ((profit / cost) * 100).toFixed(1) : 0;
+
+        const display = document.getElementById('profit-display');
+        if (display && price > 0) {
+            display.style.display = 'block';
+            document.getElementById('profit-value').textContent = Utils.formatCurrency(profit);
+            document.getElementById('profit-percent').textContent = percent + '%';
+        }
+    },
+
+    saveProduct(productId = null) {
+        // Get image data
+        let imageData = null;
+        const previewImg = document.querySelector('#product-image-preview img');
+        if (previewImg && previewImg.src.startsWith('data:')) {
+            imageData = previewImg.src;
+        } else if (productId) {
+            const existing = Utils.storage.get('products', []).find(p => p.id === productId);
+            imageData = existing?.image;
+        }
+
+        const productData = {
+            id: productId || Utils.generateId(),
+            name: document.getElementById('product-name').value.trim(),
+            sku: document.getElementById('product-sku').value.trim(),
+            category: document.getElementById('product-category').value,
+            brand: document.getElementById('product-brand').value.trim(),
+            cost: parseFloat(document.getElementById('product-cost').value) || 0,
+            price: parseFloat(document.getElementById('product-price').value) || 0,
+            stock: parseInt(document.getElementById('product-stock').value) || 0,
+            lowStockThreshold: parseInt(document.getElementById('product-low-stock').value) || 10,
+            description: document.getElementById('product-description').value.trim(),
+            image: imageData,
+            createdAt: productId ? undefined : new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+        };
+
+        if (!productData.name) {
+            Toast.error('يرجى إدخال اسم المنتج');
+            return;
+        }
+
+        let products = Utils.storage.get('products', []);
+        if (productId) {
+            const idx = products.findIndex(p => p.id === productId);
+            if (idx !== -1) products[idx] = { ...products[idx], ...productData };
+        } else {
+            products.unshift(productData);
+        }
+
+        Utils.storage.set('products', products);
+
+        closeModal('product-modal');
+        Toast.success(productId ? 'تم تحديث المنتج' : 'تم إضافة المنتج');
+        navigateTo('products');
+    },
+
+    editProduct(id) { this.openCreateModal(id); },
     
-    if(product?.imageUrl) {
-        imagePreview.src = product.imageUrl;
-        imagePreviewContainer.style.display = 'block';
+    deleteProduct(id) {
+        if (!confirm('هل تريد حذف هذا المنتج؟')) return;
+        let products = Utils.storage.get('products', []).filter(p => p.id !== id);
+        Utils.storage.set('products', products);
+        Toast.success('تم حذف المنتج');
+        navigateTo('products');
+    },
+
+    setView(view) {
+        this.currentView = view;
+        navigateTo('products');
+    },
+
+    filterByCategory(cat) {
+        this.categoryFilter = cat;
+        navigateTo('products');
+    },
+
+    search(q) {
+        this.searchQuery = q;
+        navigateTo('products');
+    },
+
+    getCategoryText(cat) {
+        const map = { clothing: 'ملابس', electronics: 'إلكترونيات', accessories: 'إكسسوارات', other: 'أخرى' };
+        return map[cat] || cat || '-';
+    },
+
+    getStockStatusText(status) {
+        const map = { available: 'متوفر', low: 'منخفض', out: 'نفذ' };
+        return map[status] || '-';
     }
 };
 
-window.saveProduct = function(productKey) {
-    const form = document.getElementById('product-form');
-    const formData = new FormData(form);
-    
-    const productData = {
-        name: formData.get('name'),
-        sku: formData.get('sku'),
-        category: formData.get('category'),
-        price: Number(formData.get('price')),
-        stock: Number(formData.get('stock')),
-        description: formData.get('description'),
-        imageUrl: formData.get('imageUrl'),
-        updatedAt: new Date().toISOString()
-    };
-    
-    // Validation
-    if(!productData.name || !productData.price || isNaN(productData.stock)) {
-        showToast('يرجى ملء جميع الحقول المطلوبة', 'error');
-        return;
-    }
-    
-    if(productKey) {
-        // Update existing
-        set(ref(db, `products/${productKey}`), productData).then(() => {
-            showToast('تم تحديث المنتج بنجاح', 'success');
-            document.querySelector('.modal-overlay')?.remove();
-        }).catch(err => {
-            showToast('حدث خطأ: ' + err.message, 'error');
-        });
-    } else {
-        // Create new
-        productData.createdAt = new Date().toISOString();
-        push(ref(db, 'products'), productData).then(() => {
-            showToast('تم إضافة المنتج بنجاح', 'success');
-            document.querySelector('.modal-overlay')?.remove();
-        }).catch(err => {
-            showToast('حدث خطأ: ' + err.message, 'error');
-        });
-    }
-};
+window.Products = Products;
 
-window.deleteProduct = function(productKey) {
-    if(confirm(t('deleteConfirm'))) {
-        remove(ref(db, `products/${productKey}`)).then(() => {
-            showToast('تم حذف المنتج', 'success');
-        }).catch(err => {
-            showToast('حدث خطأ: ' + err.message, 'error');
-        });
+// Styles
+const productsStyles = `
+    .products-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:20px;}
+    .product-card{overflow:hidden;}
+    .product-image{
+        height:180px;background:var(--bg-tertiary);display:flex;align-items:center;justify-content:center;
+        position:relative;border-bottom:1px solid var(--border-color);
     }
-};
+    .product-image img{width:100%;height:100%;object-fit:cover;}
+    .product-image .status-badge{position:absolute;top:10px;left:10px;}
+`;
+
+if (!document.getElementById('products-styles')) {
+    const s = document.createElement('style'); s.id = 'products-styles'; s.textContent = productsStyles;
+    document.head.appendChild(s);
+}

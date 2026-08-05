@@ -1,312 +1,480 @@
-import { t, currentLang } from '../core/i18n.js';
-import { db, ref, onValue, set, push } from '../core/firebase-config.js';
-import { showToast } from '../components/ui.js';
+/**
+ * ===================================
+ * Dashboard View Module
+ * ===================================
+ */
 
-let salesChartInstance = null;
-let ordersChartInstance = null;
+const Dashboard = {
+    /**
+     * Render Dashboard View
+     */
+    render(container) {
+        container.innerHTML = `
+            <div class="view-content">
+                <!-- Page Header -->
+                <div class="page-header">
+                    <h1 class="page-title">
+                        <i class='bx bx-grid-alt'></i>
+                        لوحة القيادة
+                    </h1>
+                    <p class="page-subtitle">نظرة عامة على نشاط متجرك</p>
+                </div>
 
-export function renderDashboard(container) {
-    container.innerHTML = `
-        <div class="view-content">
-            <!-- KPI Cards -->
-            <div class="dashboard-grid">
-                <div class="kpi-card">
-                    <div class="kpi-info">
-                        <h3>${t('totalSales')}</h3>
-                        <div class="value" id="kpi-sales">0</div>
-                        <small style="color: var(--success); font-size: 12px; margin-top: 5px; display: block;">
-                            <i class='bx bx-trending-up'></i> +12.5% ${t('thisMonth')}
-                        </small>
-                    </div>
-                    <div class="kpi-icon blue"><i class='bx bx-wallet'></i></div>
-                </div>
-                <div class="kpi-card">
-                    <div class="kpi-info">
-                        <h3>${t('totalOrders')}</h3>
-                        <div class="value" id="kpi-orders">0</div>
-                        <small style="color: var(--info); font-size: 12px; margin-top: 5px; display: block;">
-                            <i class='bx bx-package'></i> ${t('pendingShipments')}: <span id="kpi-pending-count">0</span>
-                        </small>
-                    </div>
-                    <div class="kpi-icon green"><i class='bx bx-shopping-bag'></i></div>
-                </div>
-                <div class="kpi-card">
-                    <div class="kpi-info">
-                        <h3>${t('activeCustomers')}</h3>
-                        <div class="value" id="kpi-crm">0</div>
-                        <small style="color: var(--purple); font-size: 12px; margin-top: 5px; display: block;">
-                            <i class='bx bx-user-plus'></i> +3 ${t('thisWeek')}
-                        </small>
-                    </div>
-                    <div class="kpi-icon purple"><i class='bx bx-user-voice'></i></div>
-                </div>
-                <div class="kpi-card">
-                    <div class="kpi-info">
-                        <h3>${t('products')}</h3>
-                        <div class="value" id="kpi-products">0</div>
-                        <small style="color: var(--warning); font-size: 12px; margin-top: 5px; display: block;">
-                            <i class='bx bx-box'></i> ${t('lowStock')}: <span id="kpi-lowstock-count">0</span>
-                        </small>
-                    </div>
-                    <div class="kpi-icon orange"><i class='bx bx-package'></i></div>
-                </div>
-            </div>
-
-            <!-- Charts & Recent Orders -->
-            <div class="charts-grid">
-                <div class="chart-card">
-                    <h3><i class='bx bx-line-chart'></i> ${t('salesAnalytics')} - ${t('monthlySales')}</h3>
-                    <canvas id="salesChart" height="120"></canvas>
-                    <div class="chart-legend">
-                        <div class="legend-item"><span class="legend-dot" style="background: #2563eb;"></span>${t('revenue')}</div>
-                        <div class="legend-item"><span class="legend-dot" style="background: #10b981;"></span>${t('profit')}</div>
-                    </div>
-                </div>
-                
-                <div class="chart-card" style="max-height: 400px;">
-                    <h3><i class='bx bx-pie-chart-alt'></i> ${t('orderStatus')}</h3>
-                    <canvas id="ordersChart" height="180"></canvas>
-                    <div class="chart-legend" id="orders-legend"></div>
-                </div>
-            </div>
-
-            <!-- Recent Orders Table -->
-            <div class="table-container">
-                <div class="table-header-actions">
-                    <h2><i class='bx bx-time-five'></i> ${t('recentOrders')}</h2>
-                    <button class="btn-primary btn-sm" onclick="window.navigateTo('orders')">
-                        <i class='bx bx-show'></i> ${t('viewDetails')}
-                    </button>
-                </div>
-                <table>
-                    <thead>
-                        <tr>
-                            <th>${t('orderId')}</th>
-                            <th>${t('customer')}</th>
-                            <th>${t('amount')}</th>
-                            <th>${t('status')}</th>
-                            <th>${t('date')}</th>
-                        </tr>
-                    </thead>
-                    <tbody id="dash-orders-body">
-                        <tr><td colspan="5" style="text-align:center;"><div class="spinner" style="width:30px;height:30px;border-width:3px;margin:10px auto;"></div></td></tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- Quick Actions -->
-            <div class="chart-card" style="margin-top: 20px;">
-                <h3><i class='bx bx-bolt'></i> ${t('quickActions')}</h3>
+                <!-- Quick Actions -->
                 <div class="quick-actions">
-                    <button class="quick-action-btn" onclick="window.navigateTo('orders')">
-                        <i class='bx bx-cart-add'></i>
-                        <span>${t('newOrder')}</span>
+                    <button class="btn-primary" onclick="Orders.openCreateModal()">
+                        <i class='bx bx-plus'></i> طلب جديد
                     </button>
-                    <button class="quick-action-btn" onclick="window.navigateTo('products')">
-                        <i class='bx bx-plus-circle'></i>
-                        <span>${t('addProduct')}</span>
+                    <button class="btn-secondary" onclick="Shipping.openWaybillModal()">
+                        <i class='bx bx-truck'></i> بوليصة شحن
                     </button>
-                    <button class="quick-action-btn" onclick="window.navigateTo('crm')">
-                        <i class='bx bx-user-plus'></i>
-                        <span>${t('addCustomer')}</span>
-                    </button>
-                    <button class="quick-action-btn" onclick="window.navigateTo('reports')">
-                        <i class='bx bx-bar-chart-alt-2'></i>
-                        <span>${t('viewReports')}</span>
-                    </button>
-                    <button class="quick-action-btn" onclick="window.navigateTo('inventory')">
-                        <i class='bx bx-box'></i>
-                        <span>${t('addStock')}</span>
+                    <button class="btn-outline" onclick="navigateTo('reports')">
+                        <i class='bx bx-download'></i> تصدير تقرير
                     </button>
                 </div>
-            </div>
-        </div>
-    `;
 
-    // Fetch real-time data
-    fetchDashboardData();
-}
+                <!-- Stats Grid -->
+                <div class="stats-grid" id="dashboard-stats">
+                    ${this.renderStatCards()}
+                </div>
 
-function fetchDashboardData() {
-    // Orders Data
-    const ordersRef = ref(db, 'orders');
-    onValue(ordersRef, (snapshot) => {
-        const data = snapshot.val();
-        if(data) {
-            const orderList = Object.values(data);
-            document.getElementById('kpi-orders').innerText = orderList.length;
-            
-            const totalRevenue = orderList.reduce((acc, cur) => acc + (cur.amount || 0), 0);
-            document.getElementById('kpi-sales').innerHTML = totalRevenue.toLocaleString() + ` <span style="font-size:14px">${t('currency')}</span>`;
-            
-            const pendingCount = orderList.filter(o => o.status === 'pending' || o.status === 'processing').length;
-            document.getElementById('kpi-pending-count').innerText = pendingCount;
-            
-            // Recent Orders Table
-            const tbody = document.getElementById('dash-orders-body');
-            const recentOrders = orderList.slice(-5).reverse();
-            tbody.innerHTML = recentOrders.map(o => `
-                <tr>
-                    <td style="font-weight: 600; color: var(--primary)">${o.id}</td>
-                    <td>
-                        <div style="display:flex;align-items:center;gap:8px;">
-                            <img src="${o.customerAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(o.customer)}&background=2563eb&color=fff`}" 
-                                 class="avatar avatar-sm" alt="">
-                            ${o.customer}
+                <!-- Main Content Grid -->
+                <div class="dashboard-grid">
+                    <!-- Recent Orders -->
+                    <div class="card dashboard-card">
+                        <div class="card-header">
+                            <h3><i class='bx bx-cart'></i> آخر الطلبات</h3>
+                            <a href="#" onclick="navigateTo('orders')" class="btn-link">عرض الكل</a>
                         </div>
-                    </td>
-                    <td style="font-weight:600;">${Number(o.amount).toLocaleString()} ${t('currency')}</td>
-                    <td><span class="status-badge status-${o.status}">${t('status_'+o.status)}</span></td>
-                    <td style="color:var(--text-secondary);font-size:13px;">${o.date || '-'}</td>
-                </tr>
-            `).join('');
-            
-            // Update Charts
-            initSalesChart(orderList);
-            initOrdersChart(orderList);
-        } else {
-            document.getElementById('kpi-orders').innerText = '0';
-            document.getElementById('kpi-sales').innerHTML = `0 <span style="font-size:14px">${t('currency')}</span>`;
-            document.getElementById('dash-orders-body').innerHTML = `<tr><td colspan="5" class="empty-state" style="padding:30px;"><p>${t('noData')}</p></td></tr>`;
-        }
-    });
+                        <div class="card-body">
+                            <div id="recent-orders-list">
+                                ${this.renderRecentOrders()}
+                            </div>
+                        </div>
+                    </div>
 
-    // CRM Data
-    const crmRef = ref(db, 'crm');
-    onValue(crmRef, (snapshot) => {
-        const data = snapshot.val();
-        document.getElementById('kpi-crm').innerText = data ? Object.keys(data).length : 0;
-    });
+                    <!-- Recent Shipments -->
+                    <div class="card dashboard-card">
+                        <div class="card-header">
+                            <h3><i class='bx bx-truck'></i> آخر الشحنات</h3>
+                            <a href="#" onclick="navigateTo('shipping')" class="btn-link">عرض الكل</a>
+                        </div>
+                        <div class="card-body">
+                            <div id="recent-shipments-list">
+                                ${this.renderRecentShipments()}
+                            </div>
+                        </div>
+                    </div>
 
-    // Products Data
-    const productsRef = ref(db, 'products');
-    onValue(productsRef, (snapshot) => {
-        const data = snapshot.val();
-        if(data) {
-            const productList = Object.values(data);
-            document.getElementById('kpi-products').innerText = productList.length;
-            const lowStockCount = productList.filter(p => p.stock < 10).length;
-            document.getElementById('kpi-lowstock-count').innerText = lowStockCount;
-        }
-    });
-}
+                    <!-- Revenue Chart Placeholder -->
+                    <div class="card dashboard-card chart-card">
+                        <div class="card-header">
+                            <h3><i class='bx bx-line-chart'></i> الإيرادات</h3>
+                            <select class="filter-select" id="revenue-period" onchange="Dashboard.updateRevenueChart()">
+                                <option value="7">آخر 7 أيام</option>
+                                <option value="30" selected>آخر 30 يوم</option>
+                                <option value="90">آخر 90 يوم</option>
+                            </select>
+                        </div>
+                        <div class="card-body">
+                            <div class="chart-placeholder" id="revenue-chart">
+                                ${this.renderRevenueChart()}
+                            </div>
+                        </div>
+                    </div>
 
-function initSalesChart(orderList) {
-    const ctx = document.getElementById('salesChart');
-    if(!ctx) return;
-    
-    // Destroy existing chart
-    if(salesChartInstance) {
-        salesChartInstance.destroy();
-    }
-    
-    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-    const textColor = isDark ? '#94a3b8' : '#64748b';
-    
-    // Calculate monthly data
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const revenueData = [12000, 19000, 3000, 5000, 20000, 30000, 45000, 38000, 42000, 35000, 48000, 55000];
-    const profitData = revenueData.map(v => Math.round(v * 0.35));
-    
-    salesChartInstance = new Chart(ctx, {
-        type: 'line',
-        data: {
-            labels: months,
-            datasets: [
-                { 
-                    label: t('revenue'), 
-                    data: revenueData, 
-                    borderColor: '#2563eb', 
-                    backgroundColor: 'rgba(37, 99, 235, 0.1)',
-                    fill: true,
-                    tension: 0.4,
-                    borderWidth: 2,
-                    pointRadius: 4,
-                    pointBackgroundColor: '#2563eb'
-                },
-                { 
-                    label: t('profit'), 
-                    data: profitData, 
-                    borderColor: '#10b981', 
-                    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-                    fill: true,
-                    tension: 0.4,
-                    borderWidth: 2,
-                    pointRadius: 4,
-                    pointBackgroundColor: '#10b981'
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false }
+                    <!-- Quick Stats / Activity Feed -->
+                    <div class="card dashboard-card">
+                        <div class="card-header">
+                            <h3><i class='bx bx-activity'></i> النشاط الأخير</h3>
+                        </div>
+                        <div class="card-body">
+                            <div id="activity-feed">
+                                ${this.renderActivityFeed()}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Initialize any interactive elements
+        this.initInteractions();
+    },
+
+    /**
+     * Render Stat Cards
+     */
+    renderStatCards() {
+        const stats = [
+            { 
+                icon: 'bx-cart', 
+                label: 'إجمالي الطلبات', 
+                value: Utils.storage.get('orders', []).length,
+                color: 'primary',
+                trend: '+12%',
+                trendUp: true
             },
-            scales: {
-                x: { 
-                    grid: { color: isDark ? '#334155' : '#e2e8f0' },
-                    ticks: { color: textColor }
-                },
-                y: { 
-                    grid: { color: isDark ? '#334155' : '#e2e8f0' },
-                    ticks: { 
-                        color: textColor,
-                        callback: function(value) { return value / 1000 + 'K'; }
-                    }
-                }
+            { 
+                icon: 'bx-truck', 
+                label: 'الشحنات النشطة', 
+                value: Utils.storage.get('shipments', []).filter(s => ['pending', 'processing', 'shipped'].includes(s.status)).length,
+                color: 'warning',
+                trend: '+5%',
+                trendUp: true
+            },
+            { 
+                icon: 'bx-check-circle', 
+                label: 'تم التسليم', 
+                value: Utils.storage.get('shipments', []).filter(s => s.status === 'delivered').length,
+                color: 'success',
+                trend: '+18%',
+                trendUp: true
+            },
+            { 
+                icon: 'bx-wallet', 
+                label: 'إجمالي الإيرادات', 
+                value: Utils.formatCurrency(this.calculateTotalRevenue()),
+                color: 'info',
+                trend: '+8%',
+                trendUp: true
+            },
+            { 
+                icon: 'bx-user-pin', 
+                label: 'إجمالي العملاء', 
+                value: Utils.storage.get('customers', []).length,
+                color: 'purple'
+            },
+            { 
+                icon: 'bx-box', 
+                label: 'المنتجات', 
+                value: Utils.storage.get('products', []).length,
+                color: 'danger'
+            },
+            { 
+                icon: 'bx-package', 
+                label: 'منخفض المخزون', 
+                value: Utils.storage.get('products', []).filter(p => (p.stock || 0) <= (p.lowStockThreshold || 10)).length,
+                color: 'warning'
+            },
+            { 
+                icon: 'bx-return-box', 
+                label: 'مرتجعات', 
+                value: Utils.storage.get('shipments', []).filter(s => s.status === 'returned').length,
+                color: 'danger'
             }
-        }
-    });
-}
+        ];
 
-function initOrdersChart(orderList) {
-    const ctx = document.getElementById('ordersChart');
-    if(!ctx) return;
-    
-    if(ordersChartInstance) {
-        ordersChartInstance.destroy();
+        return stats.map(stat => `
+            <div class="stat-card hover-lift">
+                <div class="stat-icon ${stat.color}">
+                    <i class='bx ${stat.icon}'></i>
+                </div>
+                <div class="stat-content">
+                    <div class="stat-value">${stat.value}</div>
+                    <div class="stat-label">${stat.label}</div>
+                    ${stat.trend ? `
+                        <div class="stat-trend ${stat.trendUp ? 'up' : 'down'}">
+                            <i class='bx ${stat.trendUp ? 'bx-trending-up' : 'bx-trending-down'}'></i>
+                            ${stat.trend}
+                        </div>
+                    ` : ''}
+                </div>
+            </div>
+        `).join('');
+    },
+
+    /**
+     * Calculate Total Revenue
+     */
+    calculateTotalRevenue() {
+        const orders = Utils.storage.get('orders', []);
+        return orders.reduce((sum, order) => sum + (parseFloat(order.total) || 0), 0);
+    },
+
+    /**
+     * Render Recent Orders List
+     */
+    renderRecentOrders() {
+        const orders = Utils.storage.get('orders', []);
+        const recentOrders = orders.slice(-5).reverse();
+
+        if (recentOrders.length === 0) {
+            return `
+                <div class="empty-state" style="padding: 40px 20px;">
+                    <i class='bx bx-cart empty-state-icon'></i>
+                    <p class="empty-state-description">لا توجد طلبات بعد</p>
+                    <button class="btn-primary btn-sm" onclick="Orders.openCreateModal()">
+                        إنشاء أول طلب
+                    </button>
+                </div>
+            `;
+        }
+
+        return recentOrders.map(order => `
+            <div class="list-item" style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border-color);">
+                <div style="flex:1;min-width:0;">
+                    <div style="font-weight:600;font-size:14px;margin-bottom:4px;">${order.customerName || 'بدون اسم'}</div>
+                    <div style="font-size:12px;color:var(--text-secondary);">#${order.id?.slice(-8) || 'N/A'}</div>
+                </div>
+                <div style="text-align:left;">
+                    <div style="font-weight:600;color:var(--primary);">${Utils.formatCurrency(order.total)}</div>
+                    <span class="status-badge status-${order.status || 'pending'}">${this.getStatusText(order.status)}</span>
+                </div>
+            </div>
+        `).join('');
+    },
+
+    /**
+     * Render Recent Shipments List
+     */
+    renderRecentShipments() {
+        const shipments = Utils.storage.get('shipments', []);
+        const recentShipments = shipments.slice(-5).reverse();
+
+        if (recentShipments.length === 0) {
+            return `
+                <div class="empty-state" style="padding: 40px 20px;">
+                    <i class='bx bx-truck empty-state-icon'></i>
+                    <p class="empty-state-description">لا توجد شحنات بعد</p>
+                    <button class="btn-primary btn-sm" onclick="Shipping.openWaybillModal()">
+                        إنشاء بوليصة شحن
+                    </button>
+                </div>
+            `;
+        }
+
+        return recentShipments.map(shipment => `
+            <div class="list-item" style="display:flex;align-items:center;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border-color);">
+                <div style="flex:1;min-width:0;">
+                    <div style="font-weight:600;font-size:14px;margin-bottom:4px;">${shipment.receiverName || 'بدون اسم'}</div>
+                    <div style="font-size:12px;color:var(--text-secondary);">
+                        <i class='bx bx-building-house'></i> ${shipment.companyName || 'غير محدد'}
+                    </div>
+                </div>
+                <div style="text-align:left;">
+                    <span class="status-badge status-${shipment.status || 'pending'}">${this.getShipmentStatusText(shipment.status)}</span>
+                </div>
+            </div>
+        `).join('');
+    },
+
+    /**
+     * Render Revenue Chart (Simple CSS-based)
+     */
+    renderRevenueChart() {
+        // Generate sample data for last 30 days
+        const days = [];
+        const values = [];
+        
+        for (let i = 29; i >= 0; i--) {
+            const date = new Date();
+            date.setDate(date.getDate() - i);
+            days.push(date.getDate() + '/' + (date.getMonth() + 1));
+            values.push(Math.floor(Math.random() * 5000) + 1000);
+        }
+
+        const maxValue = Math.max(...values);
+        const minValue = Math.min(...values);
+        const range = maxValue - minValue;
+
+        return `
+            <div class="simple-chart">
+                <div class="chart-bars" style="display:flex;align-items:flex-end;height:200px;gap:4px;padding-top:20px;">
+                    ${values.map((val, idx) => {
+                        const height = range > 0 ? ((val - minValue) / range * 80 + 20) : 50;
+                        return `
+                            <div class="chart-bar" style="
+                                flex:1;
+                                height:${height}%;
+                                background:linear-gradient(to top, var(--primary), var(--purple));
+                                border-radius:4px 4px 0 0;
+                                min-height:4px;
+                                position:relative;
+                                cursor:pointer;
+                                transition:all 0.2s;
+                            " title="${days[idx]}: ${Utils.formatCurrency(val)}">
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+                <div class="chart-labels" style="display:flex;justify-content:space-between;margin-top:8px;font-size:11px;color:var(--text-tertiary);">
+                    <span>${days[0]}</span>
+                    <span>${days[15]}</span>
+                    <span>${days[29]}</span>
+                </div>
+            </div>
+        `;
+    },
+
+    /**
+     * Render Activity Feed
+     */
+    renderActivityFeed() {
+        const activities = [
+            { icon: 'bx-cart-add', text: 'طلب جديد من أحمد محمد', time: 'منذ 5 دقائق', color: 'primary' },
+            { icon: 'bx-truck', text: 'تم شحنة #12345', time: 'منذ ساعة', color: 'success' },
+            { icon: 'bx-check-double', text: 'تسليم طلب #12344', time: 'منذ ساعتين', color: 'info' },
+            { icon: 'bx-user-plus', text: 'عميل جديد: سارة علي', time: 'منذ 3 ساعات', color: 'purple' },
+            { icon: 'bx-package', text: 'تحديث مخزون: تيشيرت قطني', time: 'منذ 5 ساعات', color: 'warning' }
+        ];
+
+        return activities.map(activity => `
+            <div class="activity-item" style="display:flex;gap:12px;padding:12px 0;border-bottom:1px solid var(--border-color);">
+                <div class="activity-icon" style="
+                    width:36px;height:36px;border-radius:50%;
+                    background:var(--${activity.color}-light);
+                    display:flex;align-items:center;justify-content:center;
+                    flex-shrink:0;
+                ">
+                    <i class='bx ${activity.icon}' style="color:var(--${activity.color});font-size:18px;"></i>
+                </div>
+                <div style="flex:1;min-width:0;">
+                    <p style="font-size:14px;margin-bottom:2px;">${activity.text}</p>
+                    <span style="font-size:12px;color:var(--text-tertiary);">${activity.time}</span>
+                </div>
+            </div>
+        `).join('');
+    },
+
+    /**
+     * Get Status Text in Arabic
+     */
+    getStatusText(status) {
+        const statusMap = {
+            pending: 'معلق',
+            processing: 'قيد المعالجة',
+            shipped: 'تم الشحن',
+            delivered: 'تم التسليم',
+            cancelled: 'ملغي',
+            returned: 'مرتجع'
+        };
+        return statusMap[status] || status || 'معلق';
+    },
+
+    /**
+     * Get Shipment Status Text in Arabic
+     */
+    getShipmentStatusText(status) {
+        const statusMap = {
+            pending: 'في الانتظار',
+            processing: 'جاري التجهيز',
+            shipped: 'تم الاستلام',
+            in_transit: 'في الطريق',
+            out_for_delivery: 'خرج للتوصيل',
+            delivered: 'تم التسليم',
+            cancelled: 'ملغي',
+            returned: 'مرتجع'
+        };
+        return statusMap[status] || status || 'في الانتظار';
+    },
+
+    /**
+     * Initialize Interactive Elements
+     */
+    initInteractions() {
+        // Add hover effects to chart bars
+        document.querySelectorAll('.chart-bar').forEach(bar => {
+            bar.addEventListener('mouseenter', () => {
+                bar.style.transform = 'scaleY(1.05)';
+                bar.style.filter = 'brightness(1.1)';
+            });
+            bar.addEventListener('mouseleave', () => {
+                bar.style.transform = '';
+                bar.style.filter = '';
+            });
+        });
+    },
+
+    /**
+     * Update Revenue Chart based on period selection
+     */
+    updateRevenueChart() {
+        const period = document.getElementById('revenue-period')?.value || 30;
+        const chartContainer = document.getElementById('revenue-chart');
+        if (chartContainer) {
+            chartContainer.innerHTML = this.renderRevenueChart();
+            this.initInteractions();
+        }
+    }
+};
+
+// Add styles for dashboard components
+const dashboardStyles = `
+    .page-header {
+        margin-bottom: 24px;
     }
     
-    // Calculate status distribution
-    const statusCounts = {
-        pending: orderList.filter(o => o.status === 'pending').length,
-        processing: orderList.filter(o => o.status === 'processing').length,
-        shipped: orderList.filter(o => o.status === 'shipped').length,
-        delivered: orderList.filter(o => o.status === 'delivered').length,
-        cancelled: orderList.filter(o => o.status === 'cancelled').length
-    };
+    .page-title {
+        font-size: 28px;
+        font-weight: 700;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 8px;
+    }
     
-    const colors = ['#f59e0b', '#8b5cf6', '#3b82f6', '#10b981', '#ef4444'];
-    const statusKeys = ['pending', 'processing', 'shipped', 'delivered', 'cancelled'];
+    .page-title i {
+        color: var(--primary);
+    }
     
-    ordersChartInstance = new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-            labels: statusKeys.map(s => t('status_' + s)),
-            datasets: [{
-                data: statusKeys.map(s => statusCounts[s]),
-                backgroundColor: colors,
-                borderWidth: 0,
-                hoverOffset: 4
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            cutout: '65%',
-            plugins: {
-                legend: { display: false }
-            }
+    .page-subtitle {
+        font-size: 14px;
+        color: var(--text-secondary);
+    }
+    
+    .quick-actions {
+        display: flex;
+        gap: 12px;
+        margin-bottom: 24px;
+        flex-wrap: wrap;
+    }
+    
+    .stats-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+        gap: 16px;
+        margin-bottom: 24px;
+    }
+    
+    .dashboard-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 20px;
+    }
+    
+    @media (max-width: 1024px) {
+        .dashboard-grid {
+            grid-template-columns: 1fr;
         }
-    });
+    }
     
-    // Custom Legend
-    const legendContainer = document.getElementById('orders-legend');
-    legendContainer.innerHTML = statusKeys.map((s, i) => `
-        <div class="legend-item">
-            <span class="legend-dot" style="background: ${colors[i]};"></span>
-            ${t('status_' + s)}: ${statusCounts[s]}
-        </div>
-    `).join('');
+    @media (max-width: 640px) {
+        .stats-grid {
+            grid-template-columns: repeat(2, 1fr);
+        }
+    }
+    
+    .dashboard-card {
+        min-height: 300px;
+    }
+    
+    .btn-link {
+        color: var(--primary);
+        text-decoration: none;
+        font-size: 13px;
+        font-weight: 500;
+    }
+    
+    .btn-link:hover {
+        text-decoration: underline;
+    }
+`;
+
+// Inject styles
+if (!document.getElementById('dashboard-styles')) {
+    const styleSheet = document.createElement('style');
+    styleSheet.id = 'dashboard-styles';
+    styleSheet.textContent = dashboardStyles;
+    document.head.appendChild(styleSheet);
 }
