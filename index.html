@@ -19,12 +19,75 @@
             <div class="logo-icon" style="font-size: 50px; color: var(--primary);"><i class='bx bx-cube-alt'></i></div>
             <h2>SaaS OMS</h2>
             <p data-i18n="loginDesc">الرجاء تسجيل الدخول للوصول إلى النظام</p>
-            <button id="btn-google-login" type="button" class="btn-primary" style="width: 100%; justify-content: center; margin-top: 20px;">
-                <i class='bx bxl-google'></i> <span data-i18n="loginGoogle">تسجيل الدخول باستخدام Google</span>
+            
+            <!-- Email/Password Login Form -->
+            <form id="email-login-form" style="margin-top: 20px;">
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label style="display:block;margin-bottom:6px;font-size:14px;color:var(--text-secondary);">البريد الإلكتروني</label>
+                    <input type="email" id="login-email" class="form-control" placeholder="example@email.com" required 
+                           style="width:100%;padding:12px 15px;border:1px solid var(--border-color);border-radius:8px;font-size:14px;background:var(--bg-main);color:var(--text-primary);">
+                </div>
+                <div class="form-group" style="margin-bottom: 15px;">
+                    <label style="display:block;margin-bottom:6px;font-size:14px;color:var(--text-secondary);">كلمة المرور</label>
+                    <input type="password" id="login-password" class="form-control" placeholder="••••••••" required 
+                           style="width:100%;padding:12px 15px;border:1px solid var(--border-color);border-radius:8px;font-size:14px;background:var(--bg-main);color:var(--text-primary);">
+                </div>
+                <button type="submit" id="btn-email-login" class="btn-primary" style="width: 100%; justify-content: center; padding: 12px;">
+                    <i class='bx bx-log-in'></i> <span>تسجيل الدخول</span>
+                </button>
+            </form>
+
+            <div style="text-align:center;margin:15px 0;position:relative;">
+                <span style="background:var(--bg-body);padding:0 10px;color:var(--text-secondary);font-size:13px;">أو</span>
+                <div style="position:absolute;top:50%;left:0;right:0;height:1px;background:var(--border-color);z-index:-1;"></div>
+            </div>
+
+            <button id="btn-google-login" type="button" class="btn-outline" style="width: 100%; justify-content: center;">
+                <i class='bx bxl-google'></i> <span>تسجيل الدخول بـ Google</span>
             </button>
-            <button id="btn-google-redirect" type="button" class="btn-outline" style="width: 100%; justify-content: center; margin-top: 12px; font-size: 13px;">
-                <i class='bx bx-link-external'></i> <span>تسجيل الدخول البديل (إذا لم يعمل الزر أعلاه)</span>
-            </button>
+            
+            <p style="text-align:center;margin-top:15px;font-size:12px;color:var(--text-secondary);">
+                ليس لديك حساب؟ <a href="#" id="show-register" style="color:var(--primary);text-decoration:none;">إنشاء حساب جديد</a>
+            </p>
+        </div>
+    </div>
+
+    <!-- Register Modal -->
+    <div id="register-modal" class="modal-overlay" style="display:none;">
+        <div class="modal" style="max-width:450px;">
+            <div class="modal-header">
+                <h3><i class='bx bx-user-plus'></i> إنشاء حساب جديد</h3>
+                <button class="modal-close" onclick="document.getElementById('register-modal').style.display='none'">
+                    <i class='bx bx-x'></i>
+                </button>
+            </div>
+            <div class="modal-body">
+                <form id="register-form">
+                    <div class="form-group" style="margin-bottom: 12px;">
+                        <label style="display:block;margin-bottom:5px;font-size:13px;">الاسم الكامل</label>
+                        <input type="text" id="reg-name" class="form-control" placeholder="أحمد محمد" required
+                               style="width:100%;padding:10px 12px;border:1px solid var(--border-color);border-radius:6px;">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 12px;">
+                        <label style="display:block;margin-bottom:5px;font-size:13px;">البريد الإلكتروني</label>
+                        <input type="email" id="reg-email" class="form-control" placeholder="example@email.com" required
+                               style="width:100%;padding:10px 12px;border:1px solid var(--border-color);border-radius:6px;">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 12px;">
+                        <label style="display:block;margin-bottom:5px;font-size:13px;">كلمة المرور</label>
+                        <input type="password" id="reg-password" class="form-control" placeholder="6 أحرف على الأقل" required minlength="6"
+                               style="width:100%;padding:10px 12px;border:1px solid var(--border-color);border-radius:6px;">
+                    </div>
+                    <div class="form-group" style="margin-bottom: 12px;">
+                        <label style="display:block;margin-bottom:5px;font-size:13px;">تأكيد كلمة المرور</label>
+                        <input type="password" id="reg-confirm" class="form-control" placeholder="إعادة كتابة كلمة المرور" required
+                               style="width:100%;padding:10px 12px;border:1px solid var(--border-color);border-radius:6px;">
+                    </div>
+                    <button type="submit" class="btn-primary" style="width:100%;">
+                        <i class='bx bx-user-plus'></i> إنشاء الحساب
+                    </button>
+                </form>
+            </div>
         </div>
     </div>
 

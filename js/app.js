@@ -1,7 +1,7 @@
 
 import { setLanguage, currentLang, t } from './core/i18n.js';
 import { initTheme } from './core/theme.js';
-import { auth, provider, signInWithPopup, signInWithRedirect, getRedirectResult, signOut, onAuthStateChanged, db, ref, set, get } from './core/firebase-config.js';
+import { auth, provider, signInWithPopup, signInWithRedirect, getRedirectResult, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, onAuthStateChanged, db, ref, set, get } from './core/firebase-config.js';
 import { showToast } from './components/ui.js';
 
 // Views
@@ -73,6 +73,176 @@ document.addEventListener('DOMContentLoaded', () => {
             document.getElementById('login-screen').classList.remove('hidden');
         }
     });
+
+    // ============================================
+    // Email/Password Login Handler (PRIMARY)
+    // ============================================
+    const emailLoginForm = document.getElementById('email-login-form');
+    if (emailLoginForm) {
+        emailLoginForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const email = document.getElementById('login-email').value.trim();
+            const password = document.getElementById('login-password').value;
+            const btn = document.getElementById('btn-email-login');
+            const originalHTML = btn.innerHTML;
+            
+            // Validation
+            if (!email || !password) {
+                showToast('يرجى إدخال البريد الإلكتروني وكلمة المرور', 'error');
+                return;
+            }
+            
+            // Show loading state
+            btn.innerHTML = `<div class="spinner" style="width:18px;height:18px;border-width:2px;border-top-color:white;display:inline-block;vertical-align:middle;margin-left:8px;"></div> جاري تسجيل الدخول...`;
+            btn.style.opacity = '0.7';
+            btn.style.pointerEvents = 'none';
+            
+            try {
+                console.log('🔑 Attempting email/password login...');
+                const userCredential = await signInWithEmailAndPassword(auth, email, password);
+                console.log('✅ Email login success:', userCredential.user.email);
+                // Success handled by onAuthStateChanged
+                
+            } catch (error) {
+                console.error('❌ Email login error:', error.code);
+                
+                let errorMessage = 'حدث خطأ في تسجيل الدخول';
+                
+                switch(error.code) {
+                    case 'auth/user-not-found':
+                        errorMessage = 'هذا الحساب غير موجود - يرجى إنشاء حساب جديد';
+                        break;
+                    case 'auth/wrong-password':
+                        errorMessage = 'كلمة المرور غير صحيحة';
+                        break;
+                    case 'auth/invalid-email':
+                        errorMessage = 'صيغة البريد الإلكتروني غير صحيحة';
+                        break;
+                    case 'auth/too-many-requests':
+                        errorMessage = 'محاولات كثيرة جداً - يرجى المحاولة بعد دقائق';
+                        break;
+                    case 'auth/user-disabled':
+                        errorMessage = 'تم تعطيل هذا الحساب';
+                        break;
+                    case 'auth/invalid-credential':
+                        errorMessage = 'البريد أو كلمة المرور غير صحيحة';
+                        break;
+                    default:
+                        errorMessage = error.message || 'حدث خطأ غير معروف';
+                }
+                
+                showToast(errorMessage, 'error');
+                
+                // Restore button state
+                btn.innerHTML = originalHTML;
+                btn.style.opacity = '1';
+                btn.style.pointerEvents = 'auto';
+            }
+        });
+    }
+
+    // ============================================
+    // Register Modal Handler
+    // ============================================
+    const showRegisterBtn = document.getElementById('show-register');
+    const registerModal = document.getElementById('register-modal');
+    
+    if (showRegisterBtn && registerModal) {
+        showRegisterBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            registerModal.style.display = 'flex';
+        });
+        
+        // Close modal when clicking outside
+        registerModal.addEventListener('click', (e) => {
+            if (e.target === registerModal) {
+                registerModal.style.display = 'none';
+            }
+        });
+    }
+
+    // Register Form Handler
+    const registerForm = document.getElementById('register-form');
+    if (registerForm) {
+        registerForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const name = document.getElementById('reg-name').value.trim();
+            const email = document.getElementById('reg-email').value.trim();
+            const password = document.getElementById('reg-password').value;
+            const confirm = document.getElementById('reg-confirm').value;
+            
+            // Validation
+            if (!name || !email || !password || !confirm) {
+                showToast('يرجى ملء جميع الحقول', 'error');
+                return;
+            }
+            
+            if (password.length < 6) {
+                showToast('كلمة المرور يجب أن تكون 6 أحرف على الأقل', 'error');
+                return;
+            }
+            
+            if (password !== confirm) {
+                showToast('كلمة المرور وتأكيدها غير متطابقين', 'error');
+                return;
+            }
+            
+            const submitBtn = registerForm.querySelector('button[type="submit"]');
+            const originalHTML = submitBtn.innerHTML;
+            
+            submitBtn.innerHTML = `<div class="spinner" style="width:16px;height:16px;border-width:2px;display:inline-block;vertical-align:middle;margin-left:8px;"></div> جاري إنشاء الحساب...`;
+            submitBtn.style.opacity = '0.7';
+            submitBtn.style.pointerEvents = 'none';
+            
+            try {
+                console.log('📝 Creating new account...');
+                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                
+                // Update user profile with name
+                if (userCredential.user && name) {
+                    await userCredential.user.updateProfile({ displayName: name });
+                }
+                
+                console.log('✅ Account created:', userCredential.user.email);
+                showToast('تم إنشاء الحساب بنجاح! مرحباً بك 🎉', 'success');
+                
+                // Close modal
+                registerModal.style.display = 'none';
+                
+                // Clear form
+                registerForm.reset();
+                
+                // Success handled by onAuthStateChanged
+                
+            } catch (error) {
+                console.error('❌ Registration error:', error.code);
+                
+                let errorMessage = 'حدث خطأ في إنشاء الحساب';
+                
+                switch(error.code) {
+                    case 'auth/email-already-in-use':
+                        errorMessage = 'هذا البريد مسجل مسبقاً - يرجى تسجيل الدخول';
+                        break;
+                    case 'auth/invalid-email':
+                        errorMessage = 'صيغة البريد الإلكتروني غير صحيحة';
+                        break;
+                    case 'auth/weak-password':
+                        errorMessage = 'كلمة المرور ضعيفة جداً - استخدم 6 أحرف على الأقل';
+                        break;
+                    default:
+                        errorMessage = error.message || 'حدث خطأ غير معروف';
+                }
+                
+                showToast(errorMessage, 'error');
+                
+                submitBtn.innerHTML = originalHTML;
+                submitBtn.style.opacity = '1';
+                submitBtn.style.pointerEvents = 'auto';
+            }
+        });
+    }
 
     // Google Login Button Handler
     const googleLoginBtn = document.getElementById('btn-google-login');
@@ -160,32 +330,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 btn.innerHTML = originalHTML;
                 btn.style.opacity = '1';
                 btn.style.pointerEvents = 'auto';
-            }
-        });
-    }
-
-    // Alternative Redirect Login Button Handler
-    const redirectLoginBtn = document.getElementById('btn-google-redirect');
-    if (redirectLoginBtn) {
-        redirectLoginBtn.addEventListener('click', async (e) => {
-            e.preventDefault();
-            console.log('🔄 Redirect login button clicked...');
-            
-            const btn = e.currentTarget;
-            const originalHTML = btn.innerHTML;
-            
-            btn.innerHTML = `<div class="spinner" style="width:16px;height:16px;border-width:2px;border-top-color:currentColor;display:inline-block;vertical-align:middle;margin-left:8px;"></div> جاري التحويل...`;
-            btn.style.opacity = '0.7';
-            btn.style.pointerEvents = 'none';
-            
-            try {
-                await signInWithRedirect(auth, provider);
-            } catch (error) {
-                console.error('Redirect error:', error);
-                btn.innerHTML = originalHTML;
-                btn.style.opacity = '1';
-                btn.style.pointerEvents = 'auto';
-                showToast('خطأ: ' + error.message, 'error');
             }
         });
     }
