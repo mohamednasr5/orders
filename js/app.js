@@ -25,6 +25,28 @@ window.navigateTo = function(route) {
     loadView(route);
 };
 
+// Global function to open register modal
+window.openRegisterModal = function() {
+    console.log('📝 Opening register modal...');
+    const modal = document.getElementById('register-modal');
+    if (modal) {
+        modal.style.display = 'flex';
+        console.log('✅ Register modal opened');
+    } else {
+        console.error('❌ Register modal not found!');
+        // Fallback: create modal dynamically
+        alert('يرجى تحديث الصفحة والمحاولة مرة أخرى');
+    }
+};
+
+// Global function to close register modal
+window.closeRegisterModal = function() {
+    const modal = document.getElementById('register-modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+};
+
 document.addEventListener('DOMContentLoaded', () => {
     // Initialize language and theme
     setLanguage(currentLang);
@@ -148,18 +170,27 @@ document.addEventListener('DOMContentLoaded', () => {
     const showRegisterBtn = document.getElementById('show-register');
     const registerModal = document.getElementById('register-modal');
     
-    if (showRegisterBtn && registerModal) {
+    console.log('🔍 Register elements check:', { showRegisterBtn, registerModal });
+    
+    if (showRegisterBtn) {
         showRegisterBtn.addEventListener('click', (e) => {
             e.preventDefault();
-            registerModal.style.display = 'flex';
+            console.log('📝 Register link clicked!');
+            openRegisterModal();
         });
-        
+        console.log('✅ Register click handler attached');
+    } else {
+        console.error('❌ Show register button not found!');
+    }
+    
+    if (registerModal) {
         // Close modal when clicking outside
         registerModal.addEventListener('click', (e) => {
             if (e.target === registerModal) {
-                registerModal.style.display = 'none';
+                closeRegisterModal();
             }
         });
+        console.log('✅ Register modal click-outside handler attached');
     }
 
     // Register Form Handler
