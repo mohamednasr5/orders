@@ -2,15 +2,7 @@
  * ========================================
  * شحنلي - Shipping Management PWA
  * Main Application JavaScript
- * ========================================
- * Features:
- * - PWA Installation & Service Worker
- * - Firebase Realtime Database Integration
- * - Waybill/Shipment Management
- * - Barcode Generation & Scanning
- * - Customer CRM
- * - Real-time Tracking
- * - Store Customization
+ * Version 3.0 - Mobile First | Bosta Integration | Bottom Navigation
  * ========================================
  */
 
@@ -20,7 +12,7 @@
 
 const APP_CONFIG = {
     name: 'شحنلي',
-    version: '2.0.0',
+    version: '3.0.0',
     defaultCurrency: 'ج.م',
     trackingPrefix: 'SH',
     storageKeys: {
@@ -28,7 +20,9 @@ const APP_CONFIG = {
         customers: 'shipli_customers',
         settings: 'shipli_settings',
         drafts: 'shipli_drafts',
-        installPrompt: 'shipli_install_prompt'
+        installPrompt: 'shipli_install_prompt',
+        bostaConfig: 'shipli_bosta_config',
+        notificationSettings: 'shipli_notif_settings'
     }
 };
 
@@ -42,7 +36,11 @@ const APP_STATE = {
     itemsPerPage: 10,
     deferredInstallPrompt: null,
     isOnline: navigator.onLine,
-    firebaseInitialized: false
+    firebaseInitialized: false,
+    notificationsFilter: 'all',
+    productsCategoryFilter: 'all',
+    bostaUpdates: [],
+    todayBostaCount: 0
 };
 
 // Firebase Configuration
@@ -66,7 +64,7 @@ let storage = null;
 // ========================================
 
 document.addEventListener('DOMContentLoaded', () => {
-    console.log(`🚀 ${APP_CONFIG.name} v${APP_CONFIG.version} is initializing...`);
+    console.log(`🚀 ${APP_CONFIG.name} v${APP_CONFIG.version} initializing...`);
     
     initializeFirebase();
     loadLocalData();
@@ -76,7 +74,38 @@ document.addEventListener('DOMContentLoaded', () => {
     setTodayDate();
     checkOnlineStatus();
     
-    console.log('✅ Application initialized successfully');
+    // Initialize Bosta Integration
+    if (typeof BostaIntegration !== 'undefined') {
+        BostaIntegration.init();
+    }
+    
+    // Initialize Notifications
+    if (typeof Notifications !== 'undefined') {
+        Notifications.init();
+    }
+    
+    // Initialize Inventory
+    if (typeof Inventory !== 'undefined') {
+        Inventory.init();
+        Inventory.renderTable();
+        Inventory.renderBackordersList();
+        Inventory.renderStockAlerts();
+        Inventory.populateProductSelect('adjustProduct');
+    }
+    
+    // Initialize Webhook Handler
+    if (typeof WebhookHandler !== 'undefined') {
+        WebhookHandler.init();
+    }
+    
+    // Setup bottom navigation
+    setupBottomNavigation();
+    
+    // Render initial data
+    renderShipmentsTable();
+    renderCustomersGrid();
+    
+    console.log(`✅ ${APP_CONFIG.name} v${APP_CONFIG.version} initialized`);
 });
 
 function initializeFirebase() {
@@ -90,57 +119,317 @@ function initializeFirebase() {
         storage = firebase.storage();
         
         APP_STATE.firebaseInitialized = true;
-        console.log('🔥 Firebase initialized successfully');
+        console.log('🔥 Firebase initialized');
         
-        // Listen for auth state changes
         auth.onAuthStateChanged(user => {
+            console.log('🔑 Auth state changed:', user ? (user.isAnonymous ? 'Anonymous' : user.email) : 'Logged out');
+            
             if (user) {
-                console.log('👤 User authenticated:', user.email);
+                // Update UI based on user type
+                if (!user.isAnonymous) {
+                    updateUserUI(user);
+                }
                 syncDataWithFirebase();
             } else {
-                console.log('👤 No user authenticated');
+                resetUserUI();
                 signInAnonymously();
             }
         });
         
     } catch (error) {
-        console.error('❌ Firebase initialization error:', error);
-        showToast('خطأ في الاتصال بقاعدة البيانات', 'error');
+        console.error('❌ Firebase error:', error);
     }
 }
 
 async function signInAnonymously() {
     try {
         await auth.signInAnonymously();
-        console.log('👤 Signed in anonymously');
+        console.log('🔑 Signed in anonymously');
     } catch (error) {
-        console.error('Anonymous sign-in failed:', error);
+        console.error('Sign-in failed:', error);
+    }
+}
+
+// ========================================
+// Google Authentication ⭐ NEW
+// ========================================
+
+let googleProvider = null;
+
+function initGoogleProvider() {
+    if (!googleProvider && firebase.auth) {
+        googleProvider = new firebase.auth.GoogleAuthProvider();
+        googleProvider.addScope('email');
+        googleProvider.addScope('profile');
+        googleProvider.setCustomParameters({
+            prompt: 'select_account'
+        });
+        console.log('🔑 Google Auth provider initialized');
+    }
+    return googleProvider;
+}
+
+async function signInWithGoogle() {
+    try {
+        // Show loading
+        showLoading('جاري تسجيل الدخول بجوجل...');
+        
+        // Initialize provider
+        const provider = initGoogleProvider();
+        
+        if (!provider) {
+            showToast('خطأ: Firebase Auth غير متوفر', 'error');
+            hideLoading();
+            return;
+        }
+        
+        // Sign in with popup (better for mobile)
+        const result = await auth.signInWithPopup(provider);
+        
+        // Get user info
+        const user = result.user;
+        console.log('✅ Google Sign-In successful:', user.displayName);
+        
+        // Update UI
+        updateUserUI(user);
+        
+        // Sync data to Firebase
+        await syncDataWithFirebase();
+        
+        hideLoading();
+        showToast(`مرحباً ${user.displayName || 'بك'}! ✅`, 'success');
+        
+    } catch (error) {
+        hideLoading();
+        console.error('Google Sign-In error:', error);
+        
+        if (error.code === 'auth/popup-closed-by-user') {
+            showToast('تم إغلاق نافذة تسجيل الدخول', 'info');
+        } else if (error.code === 'auth/popup-blocked') {
+            showToast('تم حظر النافذة المنبثقة، يرجى السماح بها', 'warning');
+            // Try redirect method as fallback
+            try {
+                const provider = initGoogleProvider();
+                await auth.signInWithRedirect(provider);
+            } catch (redirectError) {
+                showToast('فشل تسجيل الدخول: ' + redirectError.message, 'error');
+            }
+        } else {
+            showToast('فشل تسجيل الدخول: ' + error.message, 'error');
+        }
+    }
+}
+
+async function signOutUser() {
+    try {
+        hideUserMenu();
+        showLoading('جاري تسجيل الخروج...');
+        
+        await auth.signOut();
+        
+        // Reset UI
+        resetUserUI();
+        
+        // Sign in anonymously for basic functionality
+        await signInAnonymously();
+        
+        hideLoading();
+        showToast('تم تسجيل الخروج بنجاح', 'info');
+        
+    } catch (error) {
+        hideLoading();
+        console.error('Sign-out error:', error);
+        showToast('حدث خطأ أثناء تسجيل الخروج', 'error');
+    }
+}
+
+function updateUserUI(user) {
+    // Show user profile button, hide Google login button
+    const googleLoginBtn = document.getElementById('googleLoginBtn');
+    const userProfileBtn = document.getElementById('userProfileBtn');
+    const userAvatar = document.getElementById('userAvatar');
+    
+    if (googleLoginBtn) googleLoginBtn.classList.add('hidden');
+    if (userProfileBtn) userProfileBtn.classList.remove('hidden');
+    
+    // Set avatar
+    if (userAvatar && user.photoURL) {
+        userAvatar.src = user.photoURL;
+        userAvatar.classList.remove('hidden');
+    }
+    
+    // Update Firebase status
+    updateFirebaseStatus(true, user.email || 'مستخدم جوجل');
+    
+    // Store user info
+    localStorage.setItem('shipli_user', JSON.stringify({
+        uid: user.uid,
+        displayName: user.displayName,
+        email: user.email,
+        photoURL: user.photoURL,
+        lastLogin: new Date().toISOString()
+    }));
+}
+
+function resetUserUI() {
+    const googleLoginBtn = document.getElementById('googleLoginBtn');
+    const userProfileBtn = document.getElementById('userProfileBtn');
+    const userAvatar = document.getElementById('userAvatar');
+    
+    if (googleLoginBtn) googleLoginBtn.classList.remove('hidden');
+    if (userProfileBtn) userProfileBtn.classList.add('hidden');
+    if (userAvatar) {
+        userAvatar.src = '';
+        userAvatar.classList.add('hidden');
+    }
+    
+    // Clear user data
+    localStorage.removeItem('shipli_user');
+    
+    // Update status
+    updateFirebaseStatus(false);
+}
+
+function showUserMenu() {
+    const userMenu = document.getElementById('userMenu');
+    const user = auth?.currentUser;
+    
+    if (!userMenu) return;
+    
+    // Populate menu with current user info
+    const menuAvatar = document.getElementById('menuUserAvatar');
+    const menuUserName = document.getElementById('menuUserName');
+    const menuUserEmail = document.getElementById('menuUserEmail');
+    
+    if (menuAvatar) menuAvatar.src = user?.photoURL || '';
+    if (menuUserName) menuUserName.textContent = user?.displayName || 'المستخدم';
+    if (menuUserEmail) menuUserEmail.textContent = user?.email || 'guest@shipli.app';
+    
+    // Show menu
+    userMenu.classList.remove('hidden');
+    
+    // Close on outside click
+    setTimeout(() => {
+        document.addEventListener('click', handleUserMenuOutsideClick);
+    }, 10);
+}
+
+function hideUserMenu() {
+    const userMenu = document.getElementById('userMenu');
+    if (userMenu) {
+        userMenu.classList.add('hidden');
+    }
+    document.removeEventListener('click', handleUserMenuOutsideClick);
+}
+
+function handleUserMenuOutsideClick(event) {
+    const userMenu = document.getElementById('userMenu');
+    const userProfileBtn = document.getElementById('userProfileBtn');
+    
+    if (userMenu && !userMenu.contains(event.target) && 
+        userProfileBtn && !userProfileBtn.contains(event.target)) {
+        hideUserMenu();
+    }
+}
+
+function updateFirebaseStatus(connected, userEmail = '') {
+    const statusEl = document.getElementById('firebaseStatus');
+    const statusText = document.getElementById('firebaseStatusText');
+    
+    if (!statusEl || !statusText) return;
+    
+    if (connected) {
+        statusEl.classList.remove('disconnected');
+        statusEl.classList.add('connected');
+        statusText.textContent = `Firebase: متصل ${userEmail ? '(' + userEmail + ')' : ''}`;
+    } else {
+        statusEl.classList.remove('connected');
+        statusEl.classList.add('disconnected');
+        statusText.textContent = 'Firebase: غير متصل';
+    }
+}
+
+async function viewFirebaseData() {
+    hideUserMenu();
+    
+    if (!db) {
+        showToast('Firebase Database غير متصل', 'error');
+        return;
+    }
+    
+    try {
+        showLoading('جاري تحميل البيانات...');
+        
+        // Fetch data from Firebase
+        const snapshot = await db.ref('/').once('value');
+        const data = snapshot.val();
+        
+        hideLoading();
+        
+        if (data) {
+            console.log('📊 Firebase Data:', data);
+            showToast(`تم تحميل ${Object.keys(data).length} مجموعات بيانات`, 'success');
+            
+            // Show data summary in a toast or alert
+            const summary = Object.entries(data).map(([key, value]) => {
+                if (typeof value === 'object' && value !== null) {
+                    return `${key}: ${Object.keys(value).length} عناصر`;
+                }
+                return `${key}: ${value}`;
+            }).join('\n');
+            
+            alert('بيانات Firebase:\n\n' + summary);
+        } else {
+            showToast('لا توجد بيانات في Firebase بعد', 'info');
+        }
+        
+    } catch (error) {
+        hideLoading();
+        console.error('Firebase read error:', error);
+        showToast('خطأ في قراءة البيانات: ' + error.message, 'error');
+    }
+}
+
+// Check for existing user session on load
+function checkExistingUserSession() {
+    const savedUser = localStorage.getItem('shipli_user');
+    const user = auth?.currentUser;
+    
+    if (user && !user.isAnonymous) {
+        updateUserUI(user);
+    } else if (savedUser) {
+        try {
+            const userData = JSON.parse(savedUser);
+            // Check if this user is still logged in
+            if (user && user.uid === userData.uid) {
+                updateUserUI(user);
+            } else {
+                localStorage.removeItem('shipli_user');
+            }
+        } catch (e) {
+            localStorage.removeItem('shipli_user');
+        }
     }
 }
 
 function loadLocalData() {
     try {
-        // Load settings
         const savedSettings = localStorage.getItem(APP_CONFIG.storageKeys.settings);
         APP_STATE.settings = savedSettings ? JSON.parse(savedSettings) : getDefaultSettings();
         applySettings();
         
-        // Load shipments
-        const savedShipments = localStorage.getItem(APP_CONFIG.storageKeys.shipments);
-        APP_STATE.shipments = savedShipments ? JSON.parse(savedShipments) : [];
+        APP_STATE.shipments = JSON.parse(localStorage.getItem(APP_CONFIG.storageKeys.shipments) || '[]');
+        APP_STATE.customers = JSON.parse(localStorage.getItem(APP_CONFIG.storageKeys.customers) || '[]');
+        APP_STATE.drafts = JSON.parse(localStorage.getItem(APP_CONFIG.storageKeys.drafts) || '[]');
         
-        // Load customers
-        const savedCustomers = localStorage.getItem(APP_CONFIG.storageKeys.customers);
-        APP_STATE.customers = savedCustomers ? JSON.parse(savedCustomers) : [];
-        
-        // Load drafts
-        const savedDrafts = localStorage.getItem(APP_CONFIG.storageKeys.drafts);
-        APP_STATE.drafts = savedDrafts ? JSON.parse(savedDrafts) : [];
-        
-        console.log(`📦 Loaded ${APP_STATE.shipments.length} shipments, ${APP_STATE.customers.length} customers`);
+        // Load Bosta updates
+        const savedBostaUpdates = localStorage.getItem('shipli_bosta_updates');
+        if (savedBostaUpdates) {
+            APP_STATE.bostaUpdates = JSON.parse(savedBotaUpdates);
+        }
         
     } catch (error) {
-        console.error('Error loading local data:', error);
+        console.error('Error loading data:', error);
     }
 }
 
@@ -155,327 +444,333 @@ function getDefaultSettings() {
         defaultCity: 'cairo',
         defaultPackageType: 'box',
         enableSMS: true,
-        autoPrintBarcode: false
+        autoPrintBarcode: false,
+        enableBrowserNotifications: true,
+        enableSoundNotifications: true,
+        enableStockAlerts: true,
+        enableBostaNotifications: true,
+        minStockThreshold: 5
     };
 }
 
-function applySettings() {
-    const settings = APP_STATE.settings;
+// ========================================
+// Bottom Navigation Setup ⭐
+// ========================================
+
+function setupBottomNavigation() {
+    const bottomNavItems = document.querySelectorAll('.bottom-nav-item');
     
-    // Apply store name
-    if (settings.storeName && settings.storeName !== 'شحنلي') {
-        document.getElementById('storeName').textContent = settings.storeName;
+    bottomNavItems.forEach(item => {
+        item.addEventListener('click', function(e) {
+            e.preventDefault();
+            const tab = this.dataset.tab;
+            if (tab) {
+                switchTab(tab);
+            }
+        });
+    });
+    
+    // Handle FAB button animation
+    const fabButton = document.querySelector('.fab-button .fab-circle');
+    if (fabButton) {
+        fabButton.addEventListener('click', function() {
+            this.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+                this.style.transform = '';
+            }, 150);
+        });
     }
-    
-    // Apply logo
-    if (settings.storeLogo) {
-        const logoImg = document.getElementById('storeLogo');
-        logoImg.src = settings.storeLogo;
-        logoImg.classList.remove('hidden');
-        document.querySelector('.default-logo').classList.add('hidden');
-    }
-    
-    // Apply to settings form
-    document.getElementById('settingsStoreName').value = settings.storeName || '';
-    document.getElementById('settingsStorePhone').value = settings.storePhone || '';
-    document.getElementById('settingsStoreEmail').value = settings.storeEmail || '';
-    document.getElementById('settingsStoreAddress').value = settings.storeAddress || '';
-    document.getElementById('shippingCompany').value = settings.shippingCompany || 'bosta';
-    document.getElementById('defaultCity').value = settings.defaultCity || 'cairo';
-    document.getElementById('defaultPackageType').value = settings.defaultPackageType || 'box';
-    document.getElementById('enableSMS').checked = settings.enableSMS ?? true;
-    document.getElementById('autoPrintBarcode').checked = settings.autoPrintBarcode || false;
 }
 
 // ========================================
-// PWA Installation & Service Worker
+// Tab Switching (with Bottom Nav support)
 // ========================================
 
-function initializePWA() {
-    // Register Service Worker
-    registerServiceWorker();
+function switchTab(tabId) {
+    // Update state
+    APP_STATE.currentTab = tabId;
     
-    // Listen for install prompt
-    window.addEventListener('beforeinstallprompt', (e) => {
-        e.preventDefault();
-        APP_STATE.deferredInstallPrompt = e;
-        showInstallBanner();
+    // Update desktop nav tabs
+    document.querySelectorAll('.nav-tab').forEach(tab => {
+        tab.classList.toggle('active', tab.dataset.tab === tabId);
     });
     
-    // Detect app installation
-    window.addEventListener('appinstalled', () => {
-        hideInstallBanner();
-        APP_STATE.deferredInstallPrompt = null;
-        showToast('تم تثبيت التطبيق بنجاح! 🎉', 'success');
-        updatePWAStatus('مثبت ✓');
+    // Update bottom nav items
+    document.querySelectorAll('.bottom-nav-item').forEach(item => {
+        item.classList.toggle('active', item.dataset.tab === tabId);
     });
     
-    // Check if already installed
-    if (isAppInstalled()) {
-        updatePWAStatus('مثبت ✓');
-    } else {
-        updatePWAStatus('يمكن التثبيت');
-    }
-}
-
-function registerServiceWorker() {
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('sw.js')
-            .then(registration => {
-                console.log('✅ Service Worker registered:', registration.scope);
-                
-                // Check for updates
-                registration.addEventListener('updatefound', () => {
-                    const newWorker = registration.installing;
-                    newWorker.addEventListener('statechange', () => {
-                        if (newWorker.state === 'activated') {
-                            showToast('تم تحديث التطبيق', 'info');
-                        }
-                    });
-                });
-            })
-            .catch(error => {
-                console.error('❌ Service Worker registration failed:', error);
-            });
-    }
-}
-
-function showInstallBanner() {
-    // Don't show if already dismissed or installed
-    if (localStorage.getItem('install_dismissed')) return;
-    if (isAppInstalled()) return;
+    // Show/hide content sections
+    document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.toggle('active', content.id === tabId);
+    });
     
-    const banner = document.getElementById('installBanner');
-    banner.classList.remove('hidden');
-}
-
-function hideInstallBanner() {
-    document.getElementById('installBanner').classList.add('hidden');
-}
-
-function isAppInstalled() {
-    return window.matchMedia('(display-mode: standalone)').matches ||
-           window.navigator.standalone === true;
-}
-
-async function installApp() {
-    if (!APP_STATE.deferredInstallPrompt) {
-        showToast('التثبيت غير متاح حالياً', 'warning');
-        return;
+    // Scroll to top on mobile
+    if (window.innerWidth < 1024) {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
     }
     
-    try {
-        APP_STATE.deferredInstallPrompt.prompt();
-        const { outcome } = await APP_STATE.deferredInstallPrompt.userChoice;
-        
-        if (outcome === 'accepted') {
-            console.log('User accepted install prompt');
-        } else {
-            console.log('User dismissed install prompt');
-        }
-        
-        APP_STATE.deferredInstallPrompt = null;
-        hideInstallBanner();
-        
-    } catch (error) {
-        console.error('Installation error:', error);
-        showToast('حدث خطأ أثناء التثبيت', 'error');
+    // Refresh tab-specific content
+    refreshTabContent(tabId);
+    
+    console.log(`[Nav] Switched to: ${tabId}`);
+}
+
+function refreshTabContent(tabId) {
+    switch (tabId) {
+        case 'dashboard':
+            updateDashboardStats();
+            if (typeof BostaIntegration !== 'undefined') {
+                BostaIntegration.renderUpdatesList();
+                BostaIntegration.updateDashboardStats();
+            }
+            if (typeof Inventory !== 'undefined') {
+                Inventory.renderStockAlerts();
+            }
+            break;
+            
+        case 'shipments':
+            renderShipmentsTable();
+            break;
+            
+        case 'inventory':
+            if (typeof Inventory !== 'undefined') {
+                Inventory.renderTable();
+                Inventory.renderBackordersList();
+                Inventory.populateProductSelect('adjustProduct');
+            }
+            break;
+            
+        case 'customers':
+            renderCustomersGrid();
+            break;
+            
+        case 'settings':
+            loadSettingsToForm();
+            break;
     }
 }
-
-function dismissInstall() {
-    hideInstallBanner();
-    localStorage.setItem('install_dismissed', 'true');
-}
-
-function updatePWAStatus(status) {
-    const statusEl = document.getElementById('pwaStatus');
-    if (statusEl) statusEl.textContent = status;
-}
-
-// Install button event listener
-document.getElementById('installBtn')?.addEventListener('click', installApp);
-document.getElementById('dismissInstall')?.addEventListener('click', dismissInstall);
 
 // ========================================
 // Event Listeners
 // ========================================
 
 function setupEventListeners() {
-    // Navigation tabs
+    // Navigation tabs (desktop)
     document.querySelectorAll('.nav-tab').forEach(tab => {
-        tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+        tab.addEventListener('click', function() {
+            switchTab(this.dataset.tab);
+        });
     });
-    
+
     // Waybill form submission
-    document.getElementById('waybillForm')?.addEventListener('submit', handleWaybillSubmit);
-    
-    // Search & filter
-    document.getElementById('shipmentSearch')?.addEventListener('input', debounce(filterShipments, 300));
-    document.getElementById('filterStatus')?.addEventListener('change', filterShipments);
-    
-    // Pagination
-    document.getElementById('prevPage')?.addEventListener('click', () => changePage(-1));
-    document.getElementById('nextPage')?.addEventListener('click', () => changePage(1));
-    
-    // Online/Offline events
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-    
-    // Settings buttons
-    document.getElementById('settingsBtn')?.addEventListener('click', () => switchTab('settings'));
+    const waybillForm = document.getElementById('waybillForm');
+    if (waybillForm) {
+        waybillForm.addEventListener('submit', handleWaybillSubmit);
+    }
+
+    // Search inputs
+    const shipmentSearch = document.getElementById('shipmentSearch');
+    if (shipmentSearch) {
+        shipmentSearch.addEventListener('input', debounce(renderShipmentsTable, 300));
+    }
+
+    const productSearch = document.getElementById('productSearch');
+    if (productSearch) {
+        productSearch.addEventListener('input', function() {
+            if (typeof Inventory !== 'undefined') {
+                Inventory.renderTable(APP_STATE.productsCategoryFilter, this.value);
+            }
+        });
+    }
+
+    // Filter changes
+    const filterStatus = document.getElementById('filterStatus');
+    if (filterStatus) {
+        filterStatus.addEventListener('change', renderShipmentsTable);
+    }
+
+    // Online/Offline status
+    window.addEventListener('online', () => {
+        APP_STATE.isOnline = true;
+        checkOnlineStatus();
+        showToast('تم استعادة الاتصال بالإنترنت', 'success', '🌐');
+    });
+
+    window.addEventListener('offline', () => {
+        APP_STATE.isOnline = false;
+        checkOnlineStatus();
+        showToast('أنت غير متصل بالإنترنت', 'warning', '📴');
+    });
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', handleKeyboardShortcuts);
+
+    // PWA Install prompt
+    window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        APP_STATE.deferredInstallPrompt = e;
+        showInstallBanner();
+    });
 }
 
-function debounce(func, wait) {
-    let timeout;
-    return function executedFunction(...args) {
-        const later = () => {
-            clearTimeout(timeout);
-            func(...args);
-        };
-        clearTimeout(timeout);
-        timeout = setTimeout(later, wait);
-    };
-}
+function handleKeyboardShortcuts(e) {
+    // Ctrl/Cmd + K for search
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        const searchInput = document.getElementById('shipmentSearch');
+        if (searchInput) searchInput.focus();
+    }
 
-// ========================================
-// Navigation
-// ========================================
+    // Escape to close modals
+    if (e.key === 'Escape') {
+        closeAllModals();
+    }
 
-function switchTab(tabId) {
-    // Update active tab
-    document.querySelectorAll('.nav-tab').forEach(tab => {
-        tab.classList.toggle('active', tab.dataset.tab === tabId);
-    });
-    
-    // Update active content
-    document.querySelectorAll('.tab-content').forEach(content => {
-        content.classList.toggle('active', content.id === tabId);
-    });
-    
-    APP_STATE.currentTab = tabId;
-    
-    // Refresh data when switching tabs
-    if (tabId === 'dashboard') {
-        updateDashboardStats();
-        renderRecentShipments();
-    } else if (tabId === 'shipments') {
-        renderShipmentsTable();
-    } else if (tabId === 'customers') {
-        renderCustomersGrid();
-    } else if (tabId === 'waybill') {
-        generateTrackingNumber();
+    // Number keys for quick navigation (1-6)
+    if (e.altKey && e.key >= '1' && e.key <= '6') {
+        const tabs = ['dashboard', 'shipments', 'waybill', 'tracking', 'customers', 'settings'];
+        const index = parseInt(e.key) - 1;
+        if (tabs[index]) {
+            switchTab(tabs[index]);
+        }
     }
 }
 
+function closeAllModals() {
+    document.querySelectorAll('.modal:not(.hidden)').forEach(modal => {
+        modal.classList.add('hidden');
+    });
+    toggleNotificationsPanel(false);
+}
+
 // ========================================
-// Dashboard
+// Dashboard Functions
 // ========================================
 
 function updateDashboardStats() {
-    const shipments = APP_STATE.shipments;
-    
-    const total = shipments.length;
-    const delivered = shipments.filter(s => s.status === 'delivered').length;
-    const inTransit = shipments.filter(s => ['picked', 'in_transit'].includes(s.status)).length;
-    const returned = shipments.filter(s => s.status === 'returned').length;
-    
-    animateCounter('totalShipments', total);
-    animateCounter('deliveredCount', delivered);
-    animateCounter('inTransitCount', inTransit);
-    animateCounter('returnedCount', returned);
-    
-    // Today's stats
-    const today = new Date().toISOString().split('T')[0];
-    const todayShipments = shipments.filter(s => s.createdAt?.startsWith(today));
-    
+    // Shipment stats
+    const total = APP_STATE.shipments.length;
+    const delivered = APP_STATE.shipments.filter(s => s.status === 'delivered').length;
+    const inTransit = APP_STATE.shipments.filter(s => s.status === 'in_transit' || s.status === 'picked').length;
+    const returned = APP_STATE.shipments.filter(s => s.status === 'returned').length;
+
+    document.getElementById('totalShipments').textContent = total;
+    document.getElementById('deliveredCount').textContent = delivered;
+    document.getElementById('inTransitCount').textContent = inTransit;
+    document.getElementById('returnedCount').textContent = returned;
+
+    // Today's summary
+    const today = new Date().toDateString();
+    const todayShipments = APP_STATE.shipments.filter(s => 
+        new Date(s.createdAt).toDateString() === today
+    );
+
     document.getElementById('todayNew').textContent = todayShipments.length;
+    document.getElementById('todayDelivered').textContent = todayShipments.filter(s => s.status === 'delivered').length;
     document.getElementById('todayPicked').textContent = todayShipments.filter(s => s.status === 'picked').length;
     document.getElementById('todayTransit').textContent = todayShipments.filter(s => s.status === 'in_transit').length;
-    document.getElementById('todayDelivered').textContent = todayShipments.filter(s => s.status === 'delivered').length;
-}
+    document.getElementById('todayBostaUpdates').textContent = APP_STATE.todayBostaCount;
 
-function animateCounter(elementId, targetValue) {
-    const element = document.getElementById(elementId);
-    if (!element) return;
-    
-    const duration = 500;
-    const startValue = parseInt(element.textContent) || 0;
-    const startTime = performance.now();
-    
-    function update(currentTime) {
-        const elapsed = currentTime - startTime;
-        const progress = Math.min(elapsed / duration, 1);
-        
-        const currentValue = Math.floor(startValue + (targetValue - startValue) * easeOutQuad(progress));
-        element.textContent = currentValue;
-        
-        if (progress < 1) {
-            requestAnimationFrame(update);
-        }
+    // Recent shipments list
+    renderRecentShipments();
+
+    // Inventory alerts
+    if (typeof Inventory !== 'undefined') {
+        Inventory.updateStats();
     }
-    
-    requestAnimationFrame(update);
-}
-
-function easeOutQuad(t) {
-    return t * (2 - t);
 }
 
 function renderRecentShipments() {
     const container = document.getElementById('recentShipmentsList');
     if (!container) return;
-    
-    const recentShipments = APP_STATE.shipments.slice(-5).reverse();
-    
-    if (recentShipments.length === 0) {
+
+    const recent = [...APP_STATE.shipments]
+        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+        .slice(0, 5);
+
+    if (recent.length === 0) {
         container.innerHTML = `
             <div class="empty-state">
-                <span class="empty-icon">📭</span>
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                </svg>
                 <p>لا توجد شحنات بعد</p>
             </div>
         `;
         return;
     }
-    
-    container.innerHTML = recentShipments.map(shipment => `
-        <div class="shipment-item" onclick="showShipmentDetails('${shipment.id}')">
-            <span class="shipment-number">${shipment.trackingNumber}</span>
-            <span class="shipment-customer">${shipment.receiverName}</span>
-            <span class="shipment-status-small status-badge ${shipment.status}">
-                ${getStatusText(shipment.status)}
-            </span>
+
+    container.innerHTML = recent.map(shipment => `
+        <div class="recent-shipment-item" onclick="showShipmentDetails('${shipment.id}')">
+            <div class="shipment-info">
+                <strong>${shipment.trackingNumber}</strong>
+                <span>${shipment.receiverName}</span>
+            </div>
+            <span class="status-badge ${shipment.status}">${getStatusLabel(shipment.status)}</span>
         </div>
     `).join('');
 }
 
 function setTodayDate() {
-    const todayEl = document.getElementById('todayDate');
-    if (todayEl) {
-        const options = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
-        todayEl.textContent = new Date().toLocaleDateString('ar-EG', options);
+    const el = document.getElementById('todayDate');
+    if (el) {
+        el.textContent = new Date().toLocaleDateString('ar-EG', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
     }
 }
 
 // ========================================
-// Shipments Management
+// Shipments CRUD
 // ========================================
 
 function renderShipmentsTable() {
     const tbody = document.getElementById('shipmentsTableBody');
     if (!tbody) return;
-    
-    let filteredShipments = getFilteredShipments();
-    
+
+    let filtered = [...APP_STATE.shipments];
+
+    // Apply search
+    const searchTerm = document.getElementById('shipmentSearch')?.value.toLowerCase() || '';
+    if (searchTerm) {
+        filtered = filtered.filter(s =>
+            s.trackingNumber?.toLowerCase().includes(searchTerm) ||
+            s.receiverName?.toLowerCase().includes(searchTerm) ||
+            s.bostaTrackingNumber?.toLowerCase().includes(searchTerm)
+        );
+    }
+
+    // Apply status filter
+    const statusFilter = document.getElementById('filterStatus')?.value || '';
+    if (statusFilter) {
+        filtered = filtered.filter(s => s.status === statusFilter);
+    }
+
+    // Apply Bosta only filter
+    const bostaOnly = document.getElementById('bostaOnlyFilter')?.checked || false;
+    if (bostaOnly) {
+        filtered = filtered.filter(s => s.sentToBosta);
+    }
+
     // Pagination
     const startIndex = (APP_STATE.currentPage - 1) * APP_STATE.itemsPerPage;
-    const endIndex = startIndex + APP_STATE.itemsPerPage;
-    const paginatedShipments = filteredShipments.slice(startIndex, endIndex);
-    
-    if (paginatedShipments.length === 0) {
+    const paginatedData = filtered.slice(startIndex, startIndex + APP_STATE.itemsPerPage);
+    const totalPages = Math.ceil(filtered.length / APP_STATE.itemsPerPage) || 1;
+
+    // Update pagination UI
+    document.getElementById('currentPage').textContent = APP_STATE.currentPage;
+    document.getElementById('totalPages').textContent = totalPages;
+    document.getElementById('prevPage').disabled = APP_STATE.currentPage <= 1;
+    document.getElementById('nextPage').disabled = APP_STATE.currentPage >= totalPages;
+
+    if (paginatedData.length === 0) {
         tbody.innerHTML = `
             <tr class="empty-row">
-                <td colspan="7">
+                <td colspan="8">
                     <div class="empty-state">
                         <span class="empty-icon">📭</span>
                         <p>لا توجد شحنات</p>
@@ -485,523 +780,318 @@ function renderShipmentsTable() {
         `;
         return;
     }
-    
-    tbody.innerHTML = paginatedShipments.map(shipment => `
-        <tr>
+
+    tbody.innerHTML = paginatedData.map(shipment => `
+        <tr onclick="showShipmentDetails('${shipment.id}')" data-label="">
             <td><strong>${shipment.trackingNumber}</strong></td>
-            <td>${shipment.receiverName}</td>
-            <td dir="ltr">${shipment.receiverPhone}</td>
-            <td>${getCityName(shipment.receiverCity)}</td>
-            <td><span class="status-badge ${shipment.status}">${getStatusText(shipment.status)}</span></td>
+            <td>${shipment.bostaTrackingNumber || '-'}</td>
+            <td>${shipment.receiverName || '-'}</td>
+            <td dir="ltr">${shipment.receiverPhone || '-'}</td>
+            <td>${getCityLabel(shipment.receiverCity)}</td>
+            <td><span class="status-badge ${shipment.status}">${getStatusLabel(shipment.status)}</span></td>
             <td>${formatDate(shipment.createdAt)}</td>
             <td>
-                <div class="table-actions">
-                    <button class="table-action-btn view" onclick="showShipmentDetails('${shipment.id}')" title="عرض">👁️</button>
-                    <button class="table-action-btn edit" onclick="editShipment('${shipment.id}')" title="تعديل">✏️</button>
-                    <button class="table-action-btn delete" onclick="deleteShipment('${shipment.id}')" title="حذف">🗑️</button>
-                    <button class="table-action-btn view" onclick="printShipment('${shipment.id}')" title="طباعة">🖨️</button>
+                <div class="row-actions">
+                    <button class="secondary-btn small" onclick="event.stopPropagation(); printWaybill('${shipment.id}')">🖨️</button>
+                    <button class="danger-btn small" onclick="event.stopPropagation(); deleteShipment('${shipment.id}')">🗑️</button>
                 </div>
             </td>
         </tr>
     `).join('');
-    
-    updatePagination(filteredShipments.length);
 }
 
-function getFilteredShipments() {
-    let filtered = [...APP_STATE.shipments];
-    
-    const searchTerm = document.getElementById('shipmentSearch')?.value.toLowerCase() || '';
-    const statusFilter = document.getElementById('filterStatus')?.value || '';
-    
-    if (searchTerm) {
-        filtered = filtered.filter(s => 
-            s.trackingNumber.toLowerCase().includes(searchTerm) ||
-            s.receiverName.toLowerCase().includes(searchTerm) ||
-            s.receiverPhone.includes(searchTerm)
-        );
-    }
-    
-    if (statusFilter) {
-        filtered = filtered.filter(s => s.status === statusFilter);
-    }
-    
-    // Sort by date (newest first)
-    filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    
-    return filtered;
-}
-
-function filterShipments() {
-    APP_STATE.currentPage = 1;
-    renderShipmentsTable();
-}
-
-function updatePagination(totalItems) {
-    const totalPages = Math.ceil(totalItems / APP_STATE.itemsPerPage);
-    
-    document.getElementById('currentPage').textContent = APP_STATE.currentPage;
-    document.getElementById('totalPages').textContent = totalPages || 1;
-    
-    document.getElementById('prevPage').disabled = APP_STATE.currentPage <= 1;
-    document.getElementById('nextPage').disabled = APP_STATE.currentPage >= totalPages;
-}
-
-function changePage(delta) {
-    APP_STATE.currentPage += delta;
-    renderShipmentsTable();
-}
-
-// ========================================
-// Waybill Creation
-// ========================================
-
-function handleWaybillSubmit(e) {
+async function handleWaybillSubmit(e) {
     e.preventDefault();
+
+    const formData = getFormData();
     
-    const shipment = createShipmentFromForm();
-    
-    // Validate required fields
-    if (!validateShipment(shipment)) {
-        return;
-    }
-    
-    // Generate ID and tracking number
-    shipment.id = generateUniqueId();
-    shipment.trackingNumber = document.getElementById('trackingNumber').value || generateTrackingNumber();
-    shipment.createdAt = new Date().toISOString();
-    shipment.updatedAt = new Date().toISOString();
-    shipment.status = 'pending';
-    shipment.timeline = [{
-        status: 'pending',
-        message: 'تم إنشاء البوليصة',
-        timestamp: new Date().toISOString(),
-        location: 'المكتب'
-    }];
-    
-    // Save to local state
-    APP_STATE.shipments.push(shipment);
-    saveShipmentsToStorage();
-    
-    // Sync with Firebase
-    saveShipmentToFirebase(shipment);
-    
-    // Show success message
-    showToast('تم إنشاء البوليصة بنجاح! 📦', 'success');
-    
-    // Auto print barcode if enabled
-    if (APP_STATE.settings.autoPrintBarcode) {
-        printBarcode();
-    }
-    
-    // Clear form or prepare for next
-    if (confirm('هل تريد إنشاء بوليصة أخرى؟')) {
-        clearForm();
+    // Generate tracking number if not set
+    if (!formData.trackingNumber) {
         generateTrackingNumber();
-    } else {
-        switchTab('shipments');
+        formData.trackingNumber = document.getElementById('trackingNumber').value;
     }
-    
-    updateDashboardStats();
+
+    // Create shipment object
+    const shipment = {
+        id: `ship_${Date.now()}`,
+        ...formData,
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        timeline: [{
+            date: new Date().toISOString(),
+            status: 'pending',
+            description: 'تم إنشاء الشحنة'
+        }]
+    };
+
+    showLoading(true);
+
+    try {
+        // Send to Bosta if enabled
+        const sendToBosta = document.getElementById('sendToBosta')?.checked;
+        if (sendToBosta && typeof BostaIntegration !== 'undefined') {
+            try {
+                const bostaResult = await BostaIntegration.createDelivery(formData);
+                if (bostaResult.success) {
+                    shipment.sentToBosta = true;
+                    shipment.bostaTrackingNumber = bostaResult.bostaTrackingNumber;
+                    shipment.status = 'picked';
+                    
+                    showToast('تم إرسال الشحنة لبوستا بنجاح! 🚚', 'success');
+                }
+            } catch (bostaError) {
+                console.error('Bosta error:', bostaError);
+                showToast('فشل الإرسال لبوستا، تم الحفظ محلياً', 'warning');
+                shipment.sentToBosta = false;
+            }
+        }
+
+        // Save locally
+        APP_STATE.shipments.unshift(shipment);
+        saveShipmentsToStorage();
+        
+        // Sync with Firebase
+        syncShipmentToFirebase(shipment);
+
+        // Check inventory and create backorder if needed
+        if (typeof Inventory !== 'undefined' && formData.productId) {
+            const product = Inventory.products.find(p => p.id === formData.productId);
+            if (product && product.stock <= 0) {
+                Inventory.createBackorder(product.id, shipment.id, shipment.receiverName);
+            } else if (product && product.stock > 0) {
+                Inventory.adjustStock(product.id, 'remove', 1, 'شحنة جديدة');
+            }
+        }
+
+        // Generate barcode
+        generateBarcodeForShipment(shipment.trackingNumber);
+
+        showToast('تم إنشاء البوليصة بنجاح! ✅', 'success');
+
+        // Clear form or keep for multiple entries
+        if (!e.shiftKey) {
+            clearForm();
+        }
+
+        // Navigate to shipments tab
+        setTimeout(() => switchTab('shipments'), 1000);
+
+    } catch (error) {
+        console.error('Error creating shipment:', error);
+        showToast('خطأ في إنشاء الشحنة', 'error');
+    } finally {
+        showLoading(false);
+    }
 }
 
-function createShipmentFromForm() {
+function getFormData() {
     return {
-        shipmentType: document.getElementById('shipmentType').value,
-        packageType: document.getElementById('packageType').value,
-        weight: parseFloat(document.getElementById('weight').value) || 0,
-        pieces: parseInt(document.getElementById('pieces').value) || 1,
-        description: document.getElementById('description').value,
-        declaredValue: parseFloat(document.getElementById('declaredValue').value) || 0,
-        codAmount: parseFloat(document.getElementById('codAmount').value) || 0,
-        
-        senderName: document.getElementById('senderName').value,
-        senderPhone: document.getElementById('senderPhone').value,
-        senderCity: document.getElementById('senderCity').value,
-        senderArea: document.getElementById('senderArea').value,
-        senderAddress: document.getElementById('senderAddress').value,
-        
-        receiverName: document.getElementById('receiverName').value,
-        receiverPhone: document.getElementById('receiverPhone').value,
-        receiverPhone2: document.getElementById('receiverPhone2').value,
-        receiverCity: document.getElementById('receiverCity').value,
-        receiverArea: document.getElementById('receiverArea').value,
-        receiverAddress: document.getElementById('receiverAddress').value,
-        receiverNotes: document.getElementById('receiverNotes').value,
-        
-        shippingCompany: APP_STATE.settings.shippingCompany || 'bosta'
+        trackingNumber: document.getElementById('trackingNumber')?.value || '',
+        type: document.getElementById('shipmentType')?.value || 'delivery',
+        packageType: document.getElementById('packageType')?.value || 'box',
+        weight: parseFloat(document.getElementById('weight')?.value) || 0,
+        pieces: parseInt(document.getElementById('pieces')?.value) || 1,
+        description: document.getElementById('description')?.value || '',
+        declaredValue: parseFloat(document.getElementById('declaredValue')?.value) || 0,
+        codAmount: parseFloat(document.getElementById('codAmount')?.value) || 0,
+        senderName: document.getElementById('senderName')?.value || '',
+        senderPhone: document.getElementById('senderPhone')?.value || '',
+        senderCity: document.getElementById('senderCity')?.value || '',
+        senderArea: document.getElementById('senderArea')?.value || '',
+        senderAddress: document.getElementById('senderAddress')?.value || '',
+        receiverName: document.getElementById('receiverName')?.value || '',
+        receiverPhone: document.getElementById('receiverPhone')?.value || '',
+        receiverPhone2: document.getElementById('receiverPhone2')?.value || '',
+        receiverCity: document.getElementById('receiverCity')?.value || '',
+        receiverArea: document.getElementById('receiverArea')?.value || '',
+        receiverAddress: document.getElementById('receiverAddress')?.value || '',
+        receiverNotes: document.getElementById('receiverNotes')?.value || ''
     };
 }
 
-function validateShipment(shipment) {
-    const requiredFields = [
-        { field: 'shipmentType', label: 'نوع الشحنة' },
-        { field: 'packageType', label: 'نوع الطرد' },
-        { field: 'senderName', label: 'اسم المرسل' },
-        { field: 'senderPhone', label: 'هاتف المرسل' },
-        { field: 'senderCity', label: 'مدينة المرسل' },
-        { field: 'senderArea', label: 'منطقة المرسل' },
-        { field: 'senderAddress', label: 'عنوان المرسل' },
-        { field: 'receiverName', label: 'اسم المستلم' },
-        { field: 'receiverPhone', label: 'هاتف المستلم' },
-        { field: 'receiverCity', label: 'مدينة المستلم' },
-        { field: 'receiverArea', label: 'منطقة المستلم' },
-        { field: 'receiverAddress', label: 'عنوان المستلم' }
-    ];
-    
-    for (const { field, label } of requiredFields) {
-        if (!shipment[field] || shipment[field].trim() === '') {
-            showToast(`يرجى إدخال ${label}`, 'error');
-            return false;
-        }
-    }
-    
-    // Validate phone numbers
-    const phoneRegex = /^01[0-9]{9}$/;
-    if (!phoneRegex.test(shipment.senderPhone)) {
-        showToast('رقم هاتف المرسل غير صحيح', 'error');
-        return false;
-    }
-    if (!phoneRegex.test(shipment.receiverPhone)) {
-        showToast('رقم هاتف المستلم غير صحيح', 'error');
-        return false;
-    }
-    
-    return true;
+function deleteShipment(id) {
+    if (!confirm('هل أنت متأكد من حذف هذه الشحنة؟')) return;
+
+    APP_STATE.shipments = APP_STATE.shipments.filter(s => s.id !== id);
+    saveShipmentsToStorage();
+    renderShipmentsTable();
+    updateDashboardStats();
+    showToast('تم حذف الشحنة', 'success');
 }
 
-function clearForm() {
-    document.getElementById('waybillForm').reset();
-    document.getElementById('barcodeDisplay').innerHTML = '<svg id="barcodeSvg"></svg><p class="barcode-number" id="barcodeNumber"></p>';
-}
+function showShipmentDetails(id) {
+    const shipment = APP_STATE.shipments.find(s => s.id === id);
+    if (!shipment) return;
 
-function saveAsDraft() {
-    const shipment = createShipmentFromForm();
-    shipment.id = generateUniqueId();
-    shipment.savedAt = new Date().toISOString();
-    
-    APP_STATE.drafts.push(shipment);
-    localStorage.setItem(APP_CONFIG.storageKeys.drafts, JSON.stringify(APP_STATE.drafts));
-    
-    showToast('تم الحفظ كمسودة ✅', 'success');
-}
+    const modal = document.getElementById('shipmentModal');
+    const body = document.getElementById('shipmentModalBody');
 
-function fillSenderFromStore() {
-    const settings = APP_STATE.settings;
-    document.getElementById('senderName').value = settings.storeName || '';
-    document.getElementById('senderPhone').value = settings.storePhone || '';
-    document.getElementById('senderCity').value = settings.defaultCity || '';
-    document.getElementById('senderAddress').value = settings.storeAddress || '';
-}
+    body.innerHTML = `
+        <div class="shipment-detail-view">
+            <div class="detail-header">
+                <h3>${shipment.trackingNumber}</h3>
+                <span class="status-badge ${shipment.status}">${getStatusLabel(shipment.status)}</span>
+                ${shipment.bostaTrackingNumber ? `<span class="bosta-badge">🚚 ${shipment.bostaTrackingNumber}</span>` : ''}
+            </div>
+            
+            <div class="detail-section">
+                <h4>بيانات المستلم</h4>
+                <p><strong>الاسم:</strong> ${shipment.receiverName}</p>
+                <p><strong>الهاتف:</strong> ${shipment.receiverPhone}</p>
+                <p><strong>العنوان:</strong> ${shipment.receiverArea}, ${getCityLabel(shipment.receiverCity)}</p>
+            </div>
 
-// ========================================
-// Barcode Generation
-// ========================================
+            <div class="detail-section">
+                <h4>مسار الشحنة</h4>
+                <div class="timeline">
+                    ${(shipment.timeline || []).map(t => `
+                        <div class="timeline-item ${t.status === shipment.status ? 'current' : 'completed'}">
+                            <div class="timeline-item-content">
+                                <strong>${getStatusLabel(t.status)}</strong>
+                                <small>${formatDateTime(t.date)}</small>
+                                ${t.description ? `<p>${t.description}</p>` : ''}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
 
-function generateTrackingNumber() {
-    const now = new Date();
-    const dateStr = now.getFullYear().toString() +
-                   String(now.getMonth() + 1).padStart(2, '0') +
-                   String(now.getDate()).padStart(2, '0');
-    
-    const randomNum = String(Math.floor(Math.random() * 1000)).padStart(3, '0');
-    const count = APP_STATE.shipments.length + 1;
-    const sequence = String(count).padStart(3, '0');
-    
-    const trackingNumber = `${APP_CONFIG.trackingPrefix}-${dateStr}-${sequence}`;
-    
-    document.getElementById('trackingNumber').value = trackingNumber;
-    renderBarcode(trackingNumber);
-    
-    return trackingNumber;
-}
-
-function renderBarcode(value) {
-    if (!value) return;
-    
-    try {
-        JsBarcode('#barcodeSvg', value, {
-            format: 'CODE128',
-            width: 2,
-            height: 80,
-            displayValue: false,
-            margin: 10,
-            background: '#ffffff',
-            lineColor: '#1e40af'
-        });
-        
-        document.getElementById('barcodeNumber').textContent = value;
-    } catch (error) {
-        console.error('Barcode generation error:', error);
-        showToast('خطأ في توليد الباركود', 'error');
-    }
-}
-
-function printBarcode() {
-    const trackingNumber = document.getElementById('trackingNumber').value;
-    if (!trackingNumber) {
-        showToast('لا يوجد باركود للطباعة', 'warning');
-        return;
-    }
-    
-    const printContent = `
-        <div style="text-align: center; padding: 20px; font-family: Cairo, sans-serif;">
-            <h2 style="margin-bottom: 10px;">${APP_STATE.settings.storeName || APP_CONFIG.name}</h2>
-            <div id="printBarcode"></div>
-            <p style="font-size: 18px; font-weight: bold; letter-spacing: 2px; direction: ltr;">${trackingNumber}</p>
-            <hr style="margin: 15px 0; border: 2px dashed #333;">
-            <p style="font-size: 12px; color: #666;">${new Date().toLocaleDateString('ar-EG')}</p>
+            <div class="detail-actions">
+                <button class="primary-btn" onclick="printWaybill('${id}')">🖨️ طباعة</button>
+                <button class="secondary-btn" onclick="shareTracking('${id}')">📤 مشاركة</button>
+                <button class="danger-btn" onclick="deleteShipment('${id}'); closeModal('shipmentModal')">🗑️ حذف</button>
+            </div>
         </div>
     `;
-    
-    const printWindow = window.open('', '_blank');
-    printWindow.document.write(`
-        <!DOCTYPE html>
-        <html dir="rtl">
-        <head>
-            <title>باركود الشحنة</title>
-            <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"><\/script>
-        </head>
-        <body>
-            ${printContent}
-            <script>
-                JsBarcode('#printBarcode', '${trackingNumber}', {
-                    format: 'CODE128',
-                    width: 2.5,
-                    height: 100,
-                    displayValue: false,
-                    margin: 15
-                });
-                window.print();
-            <\/script>
-        </body>
-        </html>
-    `);
-    printWindow.document.close();
+
+    modal.classList.remove('hidden');
 }
 
-function downloadBarcode() {
-    const svg = document.getElementById('barcodeSvg');
-    if (!svg) return;
-    
-    const svgData = new XMLSerializer().serializeToString(svg);
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    const img = new Image();
-    
-    img.onload = function() {
-        canvas.width = img.width * 2;
-        canvas.height = img.height * 2;
-        ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-        
-        const link = document.createElement('a');
-        link.download = `barcode-${document.getElementById('trackingNumber').value}.png`;
-        link.href = canvas.toDataURL('image/png');
-        link.click();
-    };
-    
-    img.src = 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svgData)));
+function saveShipmentsToStorage() {
+    localStorage.setItem(APP_CONFIG.storageKeys.shipments, JSON.stringify(APP_STATE.shipments));
 }
 
 // ========================================
-// Tracking
+// Tracking Functions
 // ========================================
 
 function trackShipment() {
-    const searchInput = document.getElementById('trackingSearchInput');
-    const searchValue = searchInput.value.trim();
+    const input = document.getElementById('trackingSearchInput');
+    const number = input?.value.trim();
     
-    if (!searchValue) {
+    if (!number) {
         showToast('يرجى إدخال رقم الشحنة', 'warning');
         return;
     }
-    
-    const shipment = APP_STATE.shipments.find(s => 
-        s.trackingNumber.toLowerCase() === searchValue.toLowerCase() ||
-        s.id === searchValue
+
+    showLoading(true);
+
+    // Search in local shipments first
+    let shipment = APP_STATE.shipments.find(s => 
+        s.trackingNumber === number || 
+        s.bostaTrackingNumber === number
     );
-    
-    if (!shipment) {
+
+    if (shipment) {
+        displayTrackingResult(shipment);
+    } else if (typeof BostaIntegration !== 'undefined' && BostaIntegration.config.isConnected) {
+        // Try Bosta API
+        BostaIntegration.trackShipment(number).then(result => {
+            if (result) {
+                displayTrackingResult({ trackingNumber: number, ...result });
+            } else {
+                showToast('لم يتم العثور على الشحنة', 'error');
+            }
+        });
+    } else {
         showToast('لم يتم العثور على الشحنة', 'error');
-        showTrackingEmpty();
-        return;
     }
-    
-    displayTrackingResult(shipment);
+
+    showLoading(false);
 }
 
 function displayTrackingResult(shipment) {
-    document.getElementById('trackingEmpty').classList.add('hidden');
-    document.getElementById('trackingResult').classList.remove('hidden');
-    
-    // Header info
+    const resultDiv = document.getElementById('trackingResult');
+    const emptyDiv = document.getElementById('trackingEmpty');
+
+    resultDiv.classList.remove('hidden');
+    emptyDiv.classList.add('hidden');
+
     document.getElementById('trackedShipmentNumber').textContent = shipment.trackingNumber;
-    document.getElementById('trackedStatus').textContent = getStatusText(shipment.status);
+    document.getElementById('trackedStatus').textContent = getStatusLabel(shipment.status);
     document.getElementById('trackedStatus').className = `status-badge ${shipment.status}`;
-    
-    // Timeline
-    const timelineContainer = document.getElementById('trackingTimeline');
-    const timeline = shipment.timeline || getDefaultTimeline(shipment.status);
-    
-    timelineContainer.innerHTML = timeline.map((item, index) => `
-        <div class="timeline-item ${index === timeline.length - 1 ? 'active' : 'completed'}">
-            <div class="timeline-dot"></div>
-            <div class="timeline-content">
-                <h4>${item.message}</h4>
-                <p>${item.location || ''}</p>
-                <span class="timeline-time">${formatDateTime(item.timestamp)}</span>
+
+    // Render timeline
+    const timelineEl = document.getElementById('trackingTimeline');
+    timelineEl.innerHTML = (shipment.timeline || []).map(t => `
+        <div class="timeline-item ${t.status === shipment.status ? 'current' : 'completed'}">
+            <div class="timeline-item-content">
+                <strong>${t.description || getStatusLabel(t.status)}</strong>
+                <small>${formatDateTime(t.date)}</small>
             </div>
         </div>
     `).join('');
-    
-    // Details
-    const detailsGrid = document.getElementById('shipmentDetailsGrid');
-    detailsGrid.innerHTML = `
-        <div class="detail-item">
-            <span class="detail-label">المرسل إليه</span>
-            <span class="detail-value">${shipment.receiverName}</span>
-        </div>
-        <div class="detail-item">
-            <span class="detail-label">الهاتف</span>
-            <span class="detail-value" dir="ltr">${shipment.receiverPhone}</span>
-        </div>
-        <div class="detail-item">
-            <span class="detail-label">العنوان</span>
-            <span class="detail-value">${shipment.receiverAddress}, ${getCityName(shipment.receiverCity)}</span>
-        </div>
-        <div class="detail-item">
-            <span class="detail-label">نوع الشحنة</span>
-            <span class="detail-value">${getShipmentTypeName(shipment.shipmentType)}</span>
-        </div>
-        <div class="detail-item">
-            <span class="detail-label">الوزن</span>
-            <span class="detail-value">${shipment.weight} كجم</span>
-        </div>
-        <div class="detail-item">
-            <span class="detail-label">قيمة الدفع عند الاستلام</span>
-            <span class="detail-value">${shipment.codAmount} ${APP_CONFIG.defaultCurrency}</span>
-        </div>
-        <div class="detail-item">
-            <span class="detail-label">تاريخ الإنشاء</span>
-            <span class="detail-value">${formatDate(shipment.createdAt)}</span>
-        </div>
-        <div class="detail-item">
-            <span class="detail-label">آخر تحديث</span>
-            <span class="detail-value">${formatDate(shipment.updatedAt)}</span>
-        </div>
+
+    // Render details
+    const detailsEl = document.getElementById('shipmentDetailsGrid');
+    detailsEl.innerHTML = `
+        <div class="detail-row"><span>المستلم:</span><strong>${shipment.receiverName || '-'}</strong></div>
+        <div class="detail-row"><span>الهاتف:</span><strong>${shipment.receiverPhone || '-'}</strong></div>
+        <div class="detail-row"><span>المدينة:</span><strong>${getCityLabel(shipment.receiverCity)}</strong></div>
+        ${shipment.bostaTrackingNumber ? `<div class="detail-row"><span>رقم بوستا:</span><strong>${shipment.bostaTrackingNumber}</strong></div>` : ''}
     `;
 }
 
-function showTrackingEmpty() {
-    document.getElementById('trackingResult').classList.add('hidden');
-    document.getElementById('trackingEmpty').classList.remove('hidden');
-}
-
-function getDefaultTimeline(status) {
-    const baseTimeline = [
-        { status: 'pending', message: 'تم إنشاء الشحنة', timestamp: new Date().toISOString(), location: 'المكتب' }
-    ];
-    
-    const statusMap = {
-        picked: [{ status: 'picked', message: 'تم استلام الشحنة من المرسل', timestamp: new Date().toISOString(), location: 'المكتب' }],
-        in_transit: [
-            { status: 'picked', message: 'تم استلام الشحنة من المرسل', timestamp: new Date().toISOString(), location: 'المكتب' },
-            { status: 'in_transit', message: 'الشحنة في الطريق', timestamp: new Date().toISOString(), location: 'مركز التوزيع' }
-        ],
-        delivered: [
-            { status: 'picked', message: 'تم استلام الشحنة من المرسل', timestamp: new Date().toISOString(), location: 'المكتب' },
-            { status: 'in_transit', message: 'الشحنة في الطريق', timestamp: new Date().toISOString(), location: 'مركز التوزيع' },
-            { status: 'delivered', message: 'تم التسليم بنجاح', timestamp: new Date().toISOString(), location: 'عنوان المستلم' }
-        ]
-    };
-    
-    return baseTimeline.concat(statusMap[status] || []);
-}
-
-function shareTracking() {
-    const trackingNumber = document.getElementById('trackedShipmentNumber').textContent;
-    
-    if (navigator.share) {
-        navigator.share({
-            title: 'تتبع شحنة',
-            text: `تابع شحنتك: ${trackingNumber}`,
-            url: window.location.href
-        }).catch(console.error);
+function trackWithBosta() {
+    if (typeof BostaIntegration !== 'undefined' && BostaIntegration.config.isConnected) {
+        showToast('أدخل رقم تتبع بوستا للبحث', 'info');
+        document.getElementById('trackingSearchInput')?.focus();
     } else {
-        navigator.clipboard.writeText(trackingNumber).then(() => {
-            showToast('تم نسخ رقم التتبع 📋', 'success');
-        }).catch(() => {
-            showToast(trackingNumber, 'info', 5000);
+        showToast('يركب ربط بوستا أولاً', 'warning');
+        switchTab('settings');
+    }
+}
+
+function refreshBostaTracking() {
+    const currentNumber = document.getElementById('trackedShipmentNumber')?.textContent;
+    if (currentNumber && typeof BostaIntegration !== 'undefined') {
+        BostaIntegration.trackShipment(currentNumber).then(result => {
+            if (result) displayTrackingResult(result);
         });
     }
 }
 
 // ========================================
-// Customer Management (CRM)
+// Customers CRM
 // ========================================
 
 function renderCustomersGrid() {
-    const container = document.getElementById('customersGrid');
-    if (!container) return;
-    
+    const grid = document.getElementById('customersGrid');
+    if (!grid) return;
+
     if (APP_STATE.customers.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state large" style="grid-column: 1 / -1;">
-                <span class="empty-icon">👥</span>
+        grid.innerHTML = `
+            <div class="empty-state large">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                    <path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+                </svg>
                 <h3>لا يوجد عملاء بعد</h3>
-                <p>ابدأ بإضافة عملائك لإدارة شحناتهم بسهولة</p>
+                <p>ابدأ بإضافة عملائك</p>
             </div>
         `;
         return;
     }
-    
-    container.innerHTML = APP_STATE.customers.map(customer => `
+
+    grid.innerHTML = APP_STATE.customers.map(customer => `
         <div class="customer-card">
-            <div class="customer-header">
-                <div class="customer-avatar">
-                    ${customer.avatar 
-                        ? `<img src="${customer.avatar}" alt="${customer.name}" style="width:100%;height:100%;border-radius:50%;object-fit:cover;">`
-                        : customer.name.charAt(0).toUpperCase()
-                    }
-                </div>
-                <div>
-                    <div class="customer-name">${customer.name}</div>
-                    <div class="customer-company">${customer.company || ''}</div>
-                </div>
-            </div>
-            <div class="customer-details">
-                <div class="customer-detail">
-                    <span class="customer-detail-icon">📱</span>
-                    <span dir="ltr">${customer.phone}</span>
-                </div>
-                ${customer.email ? `
-                <div class="customer-detail">
-                    <span class="customer-detail-icon">✉️</span>
-                    <span>${customer.email}</span>
-                </div>
-                ` : ''}
-                ${customer.address ? `
-                <div class="customer-detail">
-                    <span class="customer-detail-icon">📍</span>
-                    <span>${customer.address}</span>
-                </div>
-                ` : ''}
-            </div>
-            <div class="customer-stats">
-                <div class="customer-stat">
-                    <div class="customer-stat-value">${customer.totalOrders || 0}</div>
-                    <div class="customer-stat-label">طلبات</div>
-                </div>
-                <div class="customer-stat">
-                    <div class="customer-stat-value">${customer.totalSpent || 0}</div>
-                    <div class="customer-stat-label">إجمالي</div>
-                </div>
-            </div>
-            <div class="customer-card-actions">
-                <button class="primary-btn small" onclick="selectCustomer('${customer.id}')">اختيار</button>
-                <button class="secondary-btn small" onclick="editCustomer('${customer.id}')">تعديل</button>
+            <div class="customer-avatar">👤</div>
+            <div class="customer-name">${customer.name}</div>
+            <div class="customer-phone">${customer.phone}</div>
+            ${customer.email ? `<div class="customer-email">${customer.email}</div>` : ''}
+            <div class="customer-actions">
+                <button class="secondary-btn small" onclick="selectCustomer('${customer.id}')">اختيار</button>
                 <button class="danger-btn small" onclick="deleteCustomer('${customer.id}')">حذف</button>
             </div>
         </div>
@@ -1010,62 +1100,56 @@ function renderCustomersGrid() {
 
 function showAddCustomerModal() {
     document.getElementById('addCustomerModal').classList.remove('hidden');
-    document.getElementById('customerForm').reset();
-}
-
-function closeModal(modalId) {
-    document.getElementById(modalId).classList.add('hidden');
 }
 
 function saveCustomer(e) {
     e.preventDefault();
-    
+
     const customer = {
-        id: generateUniqueId(),
-        name: document.getElementById('custName').value.trim(),
-        phone: document.getElementById('custPhone').value.trim(),
-        email: document.getElementById('custEmail').value.trim(),
-        company: document.getElementById('custCompany').value.trim(),
-        address: document.getElementById('custAddress').value.trim(),
-        notes: document.getElementById('custNotes').value.trim(),
-        avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(document.getElementById('custName').value)}&background=2563eb&color=fff`,
-        totalOrders: 0,
-        totalSpent: 0,
+        id: `cust_${Date.now()}`,
+        name: document.getElementById('custName').value,
+        phone: document.getElementById('custPhone').value,
+        email: document.getElementById('custEmail').value,
+        company: document.getElementById('custCompany').value,
+        address: document.getElementById('custAddress').value,
+        notes: document.getElementById('custNotes').value,
         createdAt: new Date().toISOString()
     };
-    
-    // Validate
-    if (!customer.name || !customer.phone) {
-        showToast('يرجى إدخال الاسم والهاتف', 'error');
-        return;
-    }
-    
+
     APP_STATE.customers.push(customer);
-    saveCustomersToStorage();
-    saveCustomerToFirebase(customer);
-    
+    localStorage.setItem(APP_CONFIG.storageKeys.customers, JSON.stringify(APP_STATE.customers));
+
     closeModal('addCustomerModal');
     renderCustomersGrid();
-    showToast('تم إضافة العميل بنجاح 👤', 'success');
+    showToast('تم حفظ العميل بنجاح', 'success');
+
+    // Reset form
+    document.getElementById('customerForm').reset();
 }
 
-function selectCustomer(customerId) {
-    const customer = APP_STATE.customers.find(c => c.id === customerId);
+function selectCustomer(id) {
+    const customer = APP_STATE.customers.find(c => c.id === id);
     if (!customer) return;
-    
+
     // Fill receiver fields
     document.getElementById('receiverName').value = customer.name;
     document.getElementById('receiverPhone').value = customer.phone;
-    document.getElementById('receiverAddress').value = customer.address || '';
-    
-    if (customer.email) {
-        // Email goes to notes for now
-        document.getElementById('receiverNotes').value = `البريد: ${customer.email}`;
+    if (customer.address) {
+        document.getElementById('receiverAddress').value = customer.address;
     }
-    
+
     closeModal('customerModal');
     switchTab('waybill');
-    showToast('تم اختيار العميل ✅', 'success');
+    showToast('تم اختيار العميل', 'success');
+}
+
+function deleteCustomer(id) {
+    if (!confirm('حذف هذا العميل؟')) return;
+    
+    APP_STATE.customers = APP_STATE.customers.filter(c => c.id !== id);
+    localStorage.setItem(APP_CONFIG.storageKeys.customers, JSON.stringify(APP_STATE.customers));
+    renderCustomersGrid();
+    showToast('تم حذف العميل', 'success');
 }
 
 function showCustomerSearch() {
@@ -1075,417 +1159,255 @@ function showCustomerSearch() {
 
 function searchCustomers(query) {
     const resultsContainer = document.getElementById('customerSearchResults');
-    
+    if (!resultsContainer) return;
+
     let filtered = APP_STATE.customers;
     
     if (query) {
-        query = query.toLowerCase();
-        filtered = filtered.filter(c => 
-            c.name.toLowerCase().includes(query) ||
-            c.phone.includes(query) ||
-            (c.company && c.company.toLowerCase().includes(query))
+        const q = query.toLowerCase();
+        filtered = APP_STATE.customers.filter(c =>
+            c.name.toLowerCase().includes(q) ||
+            c.phone.includes(q)
         );
     }
-    
-    if (filtered.length === 0) {
-        resultsContainer.innerHTML = `
-            <div class="empty-state">
-                <p>لا توجد نتائج</p>
-            </div>
-        `;
-        return;
-    }
-    
-    resultsContainer.innerHTML = filtered.map(customer => `
-        <div class="customer-result-item" onclick="selectCustomer('${customer.id}')">
-            <div class="customer-avatar" style="width:40px;height:40px;font-size:1rem;">
-                ${customer.name.charAt(0)}
-            </div>
-            <div>
-                <div style="font-weight:600;">${customer.name}</div>
-                <div style="font-size:0.85rem;color:#666;" dir="ltr">${customer.phone}</div>
-            </div>
+
+    resultsContainer.innerHTML = filtered.length ? filtered.map(c => `
+        <div class="customer-result-item" onclick="selectCustomer('${c.id}')">
+            <strong>${c.name}</strong>
+            <span>${c.phone}</span>
         </div>
-    `).join('');
-}
-
-function editCustomer(customerId) {
-    const customer = APP_STATE.customers.find(c => c.id === customerId);
-    if (!customer) return;
-    
-    document.getElementById('custName').value = customer.name;
-    document.getElementById('custPhone').value = customer.phone;
-    document.getElementById('custEmail').value = customer.email || '';
-    document.getElementById('custCompany').value = customer.company || '';
-    document.getElementById('custAddress').value = customer.address || '';
-    document.getElementById('custNotes').value = customer.notes || '';
-    
-    // Change form behavior to edit mode
-    const form = document.getElementById('customerForm');
-    form.onsubmit = (e) => {
-        e.preventDefault();
-        updateCustomer(customerId);
-    };
-    
-    showAddCustomerModal();
-}
-
-function updateCustomer(customerId) {
-    const index = APP_STATE.customers.findIndex(c => c.id === customerId);
-    if (index === -1) return;
-    
-    APP_STATE.customers[index] = {
-        ...APP_STATE.customers[index],
-        name: document.getElementById('custName').value.trim(),
-        phone: document.getElementById('custPhone').value.trim(),
-        email: document.getElementById('custEmail').value.trim(),
-        company: document.getElementById('custCompany').value.trim(),
-        address: document.getElementById('custAddress').value.trim(),
-        notes: document.getElementById('custNotes').value.trim(),
-        updatedAt: new Date().toISOString()
-    };
-    
-    saveCustomersToStorage();
-    closeModal('addCustomerModal');
-    renderCustomersGrid();
-    showToast('تم تحديث بيانات العميل ✅', 'success');
-}
-
-function deleteCustomer(customerId) {
-    if (!confirm('هل أنت متأكد من حذف هذا العميل؟')) return;
-    
-    APP_STATE.customers = APP_STATE.customers.filter(c => c.id !== customerId);
-    saveCustomersToStorage();
-    deleteCustomerFromFirebase(customerId);
-    
-    renderCustomersGrid();
-    showToast('تم حذف العميل 🗑️', 'info');
+    `).join('') : '<p class="no-results">لا توجد نتائج</p>';
 }
 
 // ========================================
-// Shipment Details & Actions
+// Barcode Generation
 // ========================================
 
-function showShipmentDetails(shipmentId) {
-    const shipment = APP_STATE.shipments.find(s => s.id === shipmentId);
-    if (!shipment) return;
+function generateTrackingNumber() {
+    const date = new Date();
+    const dateStr = date.toISOString().slice(0, 10).replace(/-/g, '');
+    const random = Math.random().toString(36).substr(2, 4).toUpperCase();
+    const trackingNumber = `${APP_CONFIG.trackingPrefix}-${dateStr}-${random}`;
     
-    const modal = document.getElementById('shipmentModal');
-    const modalBody = document.getElementById('shipmentModalBody');
+    document.getElementById('trackingNumber').value = trackingNumber;
+    generateBarcodeForShipment(trackingNumber);
+}
+
+function generateBarcodeForShipment(trackingNumber) {
+    const svgElement = document.getElementById('barcodeSvg');
+    const numberElement = document.getElementById('barcodeNumber');
     
-    modalBody.innerHTML = `
-        <div class="shipment-detail-view">
-            <div class="detail-header">
-                <h3>${shipment.trackingNumber}</h3>
-                <span class="status-badge ${shipment.status}">${getStatusText(shipment.status)}</span>
-            </div>
-            
-            <div class="detail-section">
-                <h4>📤 بيانات المرسل</h4>
-                <p><strong>${shipment.senderName}</strong></p>
-                <p dir="ltr">📱 ${shipment.senderPhone}</p>
-                <p>📍 ${shipment.senderAddress}, ${getCityName(shipment.senderCity)}</p>
-            </div>
-            
-            <div class="detail-section">
-                <h4>📥 بيانات المستلم</h4>
-                <p><strong>${shipment.receiverName}</strong></p>
-                <p dir="ltr">📱 ${shipment.receiverPhone}</p>
-                <p>📍 ${shipment.receiverAddress}, ${getCityName(shipment.receiverCity)}</p>
-                ${shipment.receiverNotes ? `<p>📝 ${shipment.receiverNotes}</p>` : ''}
-            </div>
-            
-            <div class="detail-section">
-                <h4>📦 تفاصيل الشحنة</h4>
-                <div class="details-grid">
-                    <div class="detail-item">
-                        <span class="detail-label">النوع</span>
-                        <span class="detail-value">${getShipmentTypeName(shipment.shipmentType)}</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">الطرد</span>
-                        <span class="detail-value">${getPackageTypeName(shipment.packageType)}</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">الوزن</span>
-                        <span class="detail-value">${shipment.weight} كجم</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">عدد القطع</span>
-                        <span class="detail-value">${shipment.pieces}</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">القيمة المعلنة</span>
-                        <span class="detail-value">${shipment.declaredValue} ج.م</span>
-                    </div>
-                    <div class="detail-item">
-                        <span class="detail-label">الدفع عند الاستلام</span>
-                        <span class="detail-value">${shipment.codAmount} ج.م</span>
-                    </div>
-                </div>
-            </div>
-            
-            <div class="detail-actions">
-                <button class="primary-btn" onclick="updateShipmentStatus('${shipment.id}', 'picked')">✅ تم الاستلام</button>
-                <button class="secondary-btn" onclick="updateShipmentStatus('${shipment.id}', 'in_transit')">🚚 في الطريق</button>
-                <button class="secondary-btn" onclick="updateShipmentStatus('${shipment.id}', 'delivered')">📬 تم التسليم</button>
-                <button class="danger-btn" onclick="updateShipmentStatus('${shipment.id}', 'returned')">↩️ مرتجع</button>
-            </div>
-            
-            <div class="barcode-preview" style="text-align:center;margin-top:20px;padding:20px;background:#f9fafb;border-radius:8px;">
-                <svg id="modalBarcode"></svg>
-                <p style="font-weight:bold;margin-top:10px;direction:ltr;">${shipment.trackingNumber}</p>
-            </div>
-        </div>
-    `;
-    
-    modal.classList.remove('hidden');
-    
-    // Generate barcode in modal
-    setTimeout(() => {
+    if (svgElement && trackingNumber) {
         try {
-            JsBarcode('#modalBarcode', shipment.trackingNumber, {
+            JsBarcode(svgElement, trackingNumber, {
                 format: 'CODE128',
                 width: 2,
-                height: 60,
-                displayValue: false
+                height: 80,
+                displayValue: false,
+                margin: 10
             });
-        } catch (e) {}
-    }, 100);
+        } catch (e) {
+            console.error('Barcode generation error:', e);
+        }
+    }
+    
+    if (numberElement) {
+        numberElement.textContent = trackingNumber;
+    }
 }
 
-function editShipment(shipmentId) {
-    const shipment = APP_STATE.shipments.find(s => s.id === shipmentId);
-    if (!shipment) return;
-    
-    // Fill form with shipment data
-    document.getElementById('shipmentType').value = shipment.shipmentType || '';
-    document.getElementById('packageType').value = shipment.packageType || '';
-    document.getElementById('weight').value = shipment.weight || '';
-    document.getElementById('pieces').value = shipment.pieces || 1;
-    document.getElementById('description').value = shipment.description || '';
-    document.getElementById('declaredValue').value = shipment.declaredValue || '';
-    document.getElementById('codAmount').value = shipment.codAmount || '';
-    
-    document.getElementById('senderName').value = shipment.senderName || '';
-    document.getElementById('senderPhone').value = shipment.senderPhone || '';
-    document.getElementById('senderCity').value = shipment.senderCity || '';
-    document.getElementById('senderArea').value = shipment.senderArea || '';
-    document.getElementById('senderAddress').value = shipment.senderAddress || '';
-    
-    document.getElementById('receiverName').value = shipment.receiverName || '';
-    document.getElementById('receiverPhone').value = shipment.receiverPhone || '';
-    document.getElementById('receiverPhone2').value = shipment.receiverPhone2 || '';
-    document.getElementById('receiverCity').value = shipment.receiverCity || '';
-    document.getElementById('receiverArea').value = shipment.receiverArea || '';
-    document.getElementById('receiverAddress').value = shipment.receiverAddress || '';
-    document.getElementById('receiverNotes').value = shipment.receiverNotes || '';
-    
-    document.getElementById('trackingNumber').value = shipment.trackingNumber;
-    renderBarcode(shipment.trackingNumber);
-    
-    // Remove old shipment from array (will be re-added on submit)
-    APP_STATE.shipments = APP_STATE.shipments.filter(s => s.id !== shipmentId);
-    
-    switchTab('waybill');
-    showToast('قم بتعديل البيانات ثم احفظ', 'info');
+function printBarcode() {
+    const barcodeDisplay = document.getElementById('barcodeDisplay');
+    if (barcodeDisplay) {
+        printElement(barcodeDisplay);
+    }
 }
 
-function deleteShipment(shipmentId) {
-    if (!confirm('هل أنت متأكد من حذف هذه الشحنة؟')) return;
-    
-    APP_STATE.shipments = APP_STATE.shipments.filter(s => s.id !== shipmentId);
-    saveShipmentsToStorage();
-    deleteShipmentFromFirebase(shipmentId);
-    
-    renderShipmentsTable();
-    updateDashboardStats();
-    showToast('تم حذف الشحنة 🗑️', 'info');
-}
-
-function updateShipmentStatus(shipmentId, newStatus) {
-    const index = APP_STATE.shipments.findIndex(s => s.id === shipmentId);
-    if (index === -1) return;
-    
-    const shipment = APP_STATE.shipments[index];
-    shipment.status = newStatus;
-    shipment.updatedAt = new Date().toISOString();
-    
-    // Add to timeline
-    if (!shipment.timeline) shipment.timeline = [];
-    shipment.timeline.push({
-        status: newStatus,
-        message: getStatusUpdateMessage(newStatus),
-        timestamp: new Date().toISOString(),
-        location: 'النظام'
-    });
-    
-    saveShipmentsToStorage();
-    updateShipmentInFirebase(shipment);
-    
-    // Refresh modal
-    showShipmentDetails(shipmentId);
-    renderShipmentsTable();
-    updateDashboardStats();
-    
-    showToast(`تم تحديث الحالة: ${getStatusText(newStatus)} ✅`, 'success');
-}
-
-function printShipment(shipmentId) {
-    const shipment = APP_STATE.shipments.find(s => s.id === shipmentId);
-    if (!shipment) return;
-    
-    const printContent = `
-        <div class="waybill-print">
-            <div class="print-header">
-                <div class="print-logo">
-                    ${APP_STATE.settings.storeLogo 
-                        ? `<img src="${APP_STATE.settings.storeLogo}" style="width:100%;">` 
-                        : '🚚'}
-                </div>
-                <div class="print-title">${APP_STATE.settings.storeName || APP_CONFIG.name}</div>
-                <div style="font-size:10px;color:#666;">بوليصة شحن</div>
-            </div>
+function downloadBarcode() {
+    const svgElement = document.getElementById('barcodeSvg');
+    if (svgElement) {
+        const svgData = new XMLSerializer().serializeToString(svgElement);
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const img = new Image();
+        
+        img.onload = function() {
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(img, 0, 0);
             
-            <div class="print-barcode">
-                <svg id="printBarcodeSvg"></svg>
-                <div class="print-tracking">${shipment.trackingNumber}</div>
-            </div>
-            
-            <div class="print-details">
-                <div class="print-row">
-                    <strong>المرسل:</strong> ${shipment.senderName}
-                </div>
-                <div class="print-row">
-                    <strong>المستلم:</strong> ${shipment.receiverName}
-                </div>
-                <div class="print-row">
-                    <strong>الهاتف:</strong> <span dir="ltr">${shipment.receiverPhone}</span>
-                </div>
-                <div class="print-row">
-                    <strong>العنوان:</strong> ${shipment.receiverAddress}, ${getCityName(shipment.receiverCity)}
-                </div>
-                <div class="print-row">
-                    <strong>الحالة:</strong> ${getStatusText(shipment.status)}
-                </div>
-            </div>
-            
-            <div class="print-footer">
-                <p>تاريخ الطباعة: ${new Date().toLocaleString('ar-EG')}</p>
-                <p>${APP_CONFIG.name} v${APP_CONFIG.version}</p>
-            </div>
-        </div>
-    `;
-    
-    const printWindow = window.open('', '_blank');
-    printWindow.document.write(`
-        <!DOCTYPE html>
-        <html dir="rtl">
-        <head>
-            <title>بوليصة ${shipment.trackingNumber}</title>
-            <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
-            <style>
-                body { font-family: 'Cairo', sans-serif; padding: 20px; }
-                .waybill-print { width: 80mm; margin: 0 auto; }
-                .print-header { text-align: center; border-bottom: 2px dashed #333; padding-bottom: 10px; margin-bottom: 10px; }
-                .print-barcode { text-align: center; margin: 15px 0; }
-                .print-tracking { font-size: 14px; font-weight: bold; letter-spacing: 2px; direction: ltr; }
-                .print-details { font-size: 12px; }
-                .print-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
-                .print-footer { text-align: center; margin-top: 15px; padding-top: 10px; border-top: 2px dashed #333; font-size: 10px; color: #666; }
-            </style>
-            <script src="https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js"><\/script>
-        </head>
-        <body>
-            ${printContent}
-            <script>
-                JsBarcode('#printBarcodeSvg', '${shipment.trackingNumber}', {
-                    format: 'CODE128',
-                    width: 2,
-                    height: 70,
-                    displayValue: false,
-                    margin: 10
-                });
-                window.print();
-            <\/script>
-        </body>
-        </html>
-    `);
-    printWindow.document.close();
-}
-
-function printWaybill() {
-    const trackingNumber = document.getElementById('trackedShipmentNumber').textContent;
-    const shipment = APP_STATE.shipments.find(s => s.trackingNumber === trackingNumber);
-    if (shipment) {
-        printShipment(shipment.id);
+            const link = document.createElement('a');
+            link.download = `barcode-${document.getElementById('trackingNumber')?.value}.png`;
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+        };
+        
+        img.src = 'data:image/svg+xml;base64,' + btoa(svgData);
     }
 }
 
 // ========================================
-// Settings & Store Customization
+// Settings & Configuration
 // ========================================
+
+function loadSettingsToForm() {
+    const settings = APP_STATE.settings;
+    
+    document.getElementById('settingsStoreName').value = settings.storeName || '';
+    document.getElementById('settingsStorePhone').value = settings.storePhone || '';
+    document.getElementById('settingsStoreEmail').value = settings.storeEmail || '';
+    document.getElementById('settingsStoreAddress').value = settings.storeAddress || '';
+    document.getElementById('shippingCompany').value = settings.shippingCompany || 'bosta';
+    document.getElementById('defaultCity').value = settings.defaultCity || 'cairo';
+    document.getElementById('defaultPackageType').value = settings.defaultPackageType || 'box';
+    document.getElementById('enableBrowserNotifications').checked = settings.enableBrowserNotifications !== false;
+    document.getElementById('enableSoundNotifications').checked = settings.enableSoundNotifications !== false;
+    document.getElementById('enableStockAlerts').checked = settings.enableStockAlerts !== false;
+    document.getElementById('enableBostaNotifications').checked = settings.enableBostaNotifications !== false;
+    document.getElementById('minStockThreshold').value = settings.minStockThreshold || 5;
+    
+    // Load logo preview
+    if (settings.storeLogo) {
+        const preview = document.getElementById('settingsLogoPreview');
+        if (preview) {
+            preview.src = settings.storeLogo;
+            preview.classList.remove('hidden');
+        }
+    }
+
+    // Load Bosta config
+    if (typeof BostaIntegration !== 'undefined') {
+        document.getElementById('bostaApiKey').value = BostaIntegration.config.apiKey || '';
+        BostaIntegration.updateConnectionStatus();
+    }
+}
 
 function saveStoreSettings() {
     APP_STATE.settings = {
         ...APP_STATE.settings,
-        storeName: document.getElementById('settingsStoreName').value.trim(),
-        storePhone: document.getElementById('settingsStorePhone').value.trim(),
-        storeEmail: document.getElementById('settingsStoreEmail').value.trim(),
-        storeAddress: document.getElementById('settingsStoreAddress').value.trim(),
+        storeName: document.getElementById('settingsStoreName').value,
+        storePhone: document.getElementById('settingsStorePhone').value,
+        storeEmail: document.getElementById('settingsStoreEmail').value,
+        storeAddress: document.getElementById('settingsStoreAddress').value,
         shippingCompany: document.getElementById('shippingCompany').value,
         defaultCity: document.getElementById('defaultCity').value,
-        defaultPackageType: document.getElementById('defaultPackageType').value,
-        enableSMS: document.getElementById('enableSMS').checked,
-        autoPrintBarcode: document.getElementById('autoPrintBarcode').checked
+        defaultPackageType: document.getElementById('defaultPackageType').value
     };
-    
+
     localStorage.setItem(APP_CONFIG.storageKeys.settings, JSON.stringify(APP_STATE.settings));
     applySettings();
-    saveSettingsToFirebase();
+    showToast('تم حفظ إعدادات المتجر', 'success');
+}
+
+function saveNotificationSettings() {
+    const settings = {
+        enableBrowserNotifications: document.getElementById('enableBrowserNotifications').checked,
+        enableSoundNotifications: document.getElementById('enableSoundNotifications').checked,
+        enableStockAlerts: document.getElementById('enableStockAlerts').checked,
+        enableBostaNotifications: document.getElementById('enableBostaNotifications').checked,
+        minStockThreshold: parseInt(document.getElementById('minStockThreshold').value) || 5
+    };
+
+    localStorage.setItem(APP_CONFIG.storageKeys.notificationSettings, JSON.stringify(settings));
+
+    if (typeof Notifications !== 'undefined') {
+        Notifications.settings = { ...Notifications.settings, ...settings };
+    }
+
+    showToast('تم حفظ إعدادات الإشعارات', 'success');
+}
+
+function saveBostaSettings() {
+    const apiKey = document.getElementById('bostaApiKey')?.value;
     
-    showToast('تم حفظ الإعدادات بنجاح 💾', 'success');
+    if (!apiKey) {
+        showToast('يرجى إدخال مفتاح API', 'warning');
+        return;
+    }
+
+    if (typeof BostaIntegration !== 'undefined') {
+        BostaIntegration.saveSettings(apiKey);
+    }
+}
+
+function testBostaConnection() {
+    if (typeof BostaIntegration !== 'undefined') {
+        BostaIntegration.testConnection();
+    } else {
+        showToast('وحدة بوستا غير متوفرة', 'error');
+    }
+}
+
+function simulateBostaNotification() {
+    const eventType = document.getElementById('simulateBostaEvent')?.value || 'DELIVERED';
+    const trackingNumber = document.getElementById('simulateTrackingNumber')?.value || '';
+
+    if (typeof BostaIntegration !== 'undefined') {
+        BostaIntegration.simulateNotification(eventType, trackingNumber);
+    } else if (typeof WebhookHandler !== 'undefined') {
+        WebhookHandler.simulateWebhook(eventType, trackingNumber);
+    }
+}
+
+function testBostaWebhook() {
+    simulateBostaNotification();
+}
+
+function copyWebhookUrl() {
+    if (typeof BostaIntegration !== 'undefined') {
+        BostaIntegration.copyWebhookUrl();
+    }
+}
+
+function showBotaWebhookInstructions() {
+    document.getElementById('bostaInstructionsModal').classList.remove('hidden');
+}
+
+function applySettings() {
+    const settings = APP_STATE.settings;
+    
+    // Update header
+    const storeNameEl = document.getElementById('storeName');
+    if (storeNameEl && settings.storeName) {
+        storeNameEl.textContent = settings.storeName;
+    }
+
+    // Update logo
+    if (settings.storeLogo) {
+        const logoImg = document.getElementById('storeLogo');
+        const defaultLogo = document.querySelector('.default-logo');
+        if (logoImg) {
+            logoImg.src = settings.storeLogo;
+            logoImg.classList.remove('hidden');
+        }
+        if (defaultLogo) defaultLogo.classList.add('hidden');
+    }
 }
 
 function handleLogoUpload(event) {
     const file = event.target.files[0];
     if (!file) return;
-    
-    // Validate file type
-    if (!file.type.startsWith('image/')) {
-        showToast('يرجى اختيار صورة صحيحة', 'error');
-        return;
-    }
-    
-    // Validate file size (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
-        showToast('حجم الصورة كبير جداً (الحد الأقصى 5 ميجابايت)', 'error');
-        return;
-    }
-    
+
     const reader = new FileReader();
     reader.onload = function(e) {
-        const imageDataUrl = e.target.result;
+        const logoUrl = e.target.result;
         
-        // Show preview
+        // Preview
         const preview = document.getElementById('settingsLogoPreview');
-        preview.src = imageDataUrl;
-        preview.classList.remove('hidden');
-        document.querySelector('.logo-preview .upload-placeholder').classList.add('hidden');
-        
+        if (preview) {
+            preview.src = logoUrl;
+            preview.classList.remove('hidden');
+        }
+
         // Save to settings
-        APP_STATE.settings.storeLogo = imageDataUrl;
+        APP_STATE.settings.storeLogo = logoUrl;
         localStorage.setItem(APP_CONFIG.storageKeys.settings, JSON.stringify(APP_STATE.settings));
+        applySettings();
         
-        // Update header logo
-        const headerLogo = document.getElementById('storeLogo');
-        headerLogo.src = imageDataUrl;
-        headerLogo.classList.remove('hidden');
-        document.querySelector('.default-logo').classList.add('hidden');
-        
-        showToast('تم رفع الشعار بنجاح 🖼️', 'success');
+        showToast('تم رفع الشعار بنجاح', 'success');
     };
-    
     reader.readAsDataURL(file);
 }
 
@@ -1493,20 +1415,149 @@ function removeLogo() {
     APP_STATE.settings.storeLogo = '';
     localStorage.setItem(APP_CONFIG.storageKeys.settings, JSON.stringify(APP_STATE.settings));
     
-    // Reset previews
-    document.getElementById('settingsLogoPreview').classList.add('hidden');
-    document.querySelector('.logo-preview .upload-placeholder').classList.remove('hidden');
-    document.getElementById('storeLogo').classList.add('hidden');
-    document.querySelector('.default-logo').classList.remove('hidden');
+    const preview = document.getElementById('settingsLogoPreview');
+    const defaultLogo = document.querySelector('.default-logo');
+    const logoImg = document.getElementById('storeLogo');
     
-    showToast('تم حذف الشعار 🗑️', 'info');
+    if (preview) {
+        preview.src = '';
+        preview.classList.add('hidden');
+    }
+    if (defaultLogo) defaultLogo.classList.remove('hidden');
+    if (logoImg) logoImg.classList.add('hidden');
+    
+    showToast('تم حذف الشعار', 'success');
+}
+
+// ========================================
+// Product & Inventory Forms
+// ========================================
+
+function showAddProductModal() {
+    document.getElementById('addProductModal').classList.remove('hidden');
+    document.getElementById('productForm').reset();
+}
+
+function saveProduct(e) {
+    e.preventDefault();
+
+    const productData = {
+        name: document.getElementById('prodName').value,
+        sku: document.getElementById('prodSku').value,
+        category: document.getElementById('prodCategory').value,
+        price: document.getElementById('prodPrice').value,
+        cost: document.getElementById('prodCost').value,
+        stock: document.getElementById('prodStock').value,
+        minStock: document.getElementById('prodMinStock').value,
+        description: document.getElementById('prodDescription').value
+    };
+
+    if (typeof Inventory !== 'undefined') {
+        Inventory.addProduct(productData);
+    }
+
+    closeModal('addProductModal');
+    document.getElementById('productForm').reset();
+}
+
+function showStockAdjustmentModal() {
+    if (typeof Inventory !== 'undefined') {
+        Inventory.populateProductSelect('adjustProduct');
+    }
+    document.getElementById('stockAdjustmentModal').classList.remove('hidden');
+    document.getElementById('stockForm').reset();
+    document.getElementById('currentStockDisplay').innerHTML = '';
+}
+
+function adjustStock(e) {
+    e.preventDefault();
+
+    const productId = document.getElementById('adjustProduct').value;
+    const type = document.getElementById('adjustType').value;
+    const quantity = parseInt(document.getElementById('adjustQuantity').value) || 0;
+
+    if (!productId) {
+        showToast('يرجى اختيار المنتج', 'warning');
+        return;
+    }
+
+    if (typeof Inventory !== 'undefined') {
+        Inventory.adjustStock(productId, type, quantity);
+    }
+
+    closeModal('stockAdjustmentModal');
+}
+
+// Update stock display when product selected
+document.addEventListener('change', function(e) {
+    if (e.target.id === 'adjustProduct' && typeof Inventory !== 'undefined') {
+        const product = Inventory.products.find(p => p.id === e.target.value);
+        const display = document.getElementById('currentStockDisplay');
+        if (display && product) {
+            display.innerHTML = `<strong>المخزون الحالي:</strong> ${product.stock} قطعة`;
+        }
+    }
+});
+
+// Category filter
+function filterProductsByCategory(category, btn) {
+    APP_STATE.productsCategoryFilter = category;
+    
+    // Update active button
+    document.querySelectorAll('.category-filters .chip-btn').forEach(b => {
+        b.classList.toggle('active', b === btn);
+    });
+
+    if (typeof Inventory !== 'undefined') {
+        Inventory.renderTable(category);
+    }
+}
+
+// Notification filter
+function filterNotifications(filter, btn) {
+    APP_STATE.notificationsFilter = filter;
+    
+    document.querySelectorAll('.notifications-filters .chip-btn').forEach(b => {
+        b.classList.toggle('active', b === btn);
+    });
+
+    if (typeof Notifications !== 'undefined') {
+        Notifications.renderList(filter);
+    }
+}
+
+// ========================================
+// Modal Helpers
+// ========================================
+
+function showModal(modalId) {
+    document.getElementById(modalId)?.classList.remove('hidden');
+}
+
+function closeModal(modalId) {
+    document.getElementById(modalId)?.classList.add('hidden');
+}
+
+function toggleNotificationsPanel(show) {
+    const panel = document.getElementById('notificationsPanel');
+    if (!panel) return;
+
+    if (show === undefined) {
+        panel.classList.toggle('hidden');
+        panel.classList.toggle('show');
+    } else {
+        panel.classList.toggle('hidden', !show);
+        panel.classList.toggle('show', show);
+    }
+
+    if (!panel.classList.contains('hidden') && typeof Notifications !== 'undefined') {
+        Notifications.renderList();
+    }
 }
 
 // ========================================
 // Barcode Scanner
 // ========================================
-
-let scannerStream = null;
 
 function openBarcodeScanner() {
     document.getElementById('scannerModal').classList.remove('hidden');
@@ -1514,34 +1565,24 @@ function openBarcodeScanner() {
 }
 
 function closeScanner() {
+    closeModal('scannerModal');
     stopScanner();
-    document.getElementById('scannerModal').classList.add('hidden');
 }
+
+let scannerStream = null;
 
 async function startScanner() {
     const video = document.getElementById('scannerVideo');
-    const resultDiv = document.getElementById('scannerResult');
-    
+    if (!video) return;
+
     try {
-        // Check if camera is available
-        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-            resultDiv.innerHTML = '<p style="color:red;">الكاميرا غير مدعومة في هذا المتصفح</p>';
-            return;
-        }
-        
         scannerStream = await navigator.mediaDevices.getUserMedia({
             video: { facingMode: 'environment' }
         });
-        
         video.srcObject = scannerStream;
-        resultDiv.innerHTML = '<p>جاري المسح...</p>';
-        
-        // Note: For actual barcode scanning, you would need a library like QuaggaJS or ZXing
-        // This is a placeholder that simulates scanning
-        
-    } catch (error) {
-        console.error('Camera error:', error);
-        resultDiv.innerHTML = '<p style="color:red;">خطأ في الوصول للكاميرا</p>';
+    } catch (err) {
+        console.error('Camera error:', err);
+        showToast('لا يمكن الوصول للكاميرا', 'error');
     }
 }
 
@@ -1558,17 +1599,222 @@ function toggleCamera() {
     startScanner();
 }
 
-function scanBarcodeForTracking() {
-    openBarcodeScanner();
-    // After scan, fill tracking input
-}
-
 function scanBarcodeFromImage(event) {
     const file = event.target.files[0];
     if (!file) return;
+
+    showToast('جاري قراءة الباركود...', 'info');
+    // In a real app, would use a barcode scanning library
+}
+
+function scanBarcodeForTracking() {
+    openBarcodeScanner();
+}
+
+// ========================================
+// Utility Functions
+// ========================================
+
+function getStatusLabel(status) {
+    const labels = {
+        'pending': 'قيد الانتظار',
+        'picked': 'تم الاستلام',
+        'in_transit': 'في الطريق',
+        'out_for_delivery': 'مع المندوب',
+        'delivered': 'تم التسليم ✓',
+        'delivered_fail': 'فشل التسليم',
+        'returned': 'مرتجع',
+        'cancelled': 'ملغي',
+        'exception': 'استثناء ⚠️'
+    };
+    return labels[status] || status;
+}
+
+function getCityLabel(cityValue) {
+    const cities = {
+        'cairo': 'القاهرة',
+        'alexandria': 'الإسكندرية',
+        'giza': 'الجيزة',
+        'mansoura': 'المنصورة',
+        'tanta': 'طنطا',
+        'ismailia': 'الإسماعيلية',
+        'suez': 'السويس',
+        'luxor': 'الأقصر',
+        'aswan': 'أسوان',
+        'other': 'أخرى'
+    };
+    return cities[cityValue] || cityValue || '-';
+}
+
+function formatDate(dateStr) {
+    if (!dateStr) return '-';
+    return new Date(dateStr).toLocaleDateString('ar-EG');
+}
+
+function formatDateTime(dateStr) {
+    if (!dateStr) return '-';
+    return new Date(dateStr).toLocaleString('ar-EG');
+}
+
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+function showLoading(show) {
+    const overlay = document.getElementById('loadingOverlay');
+    if (overlay) {
+        overlay.classList.toggle('hidden', !show);
+    }
+}
+
+function showToast(message, type = 'info', icon = '') {
+    const container = document.getElementById('toastContainer');
+    if (!container) return;
+
+    const toast = document.createElement('div');
+    toast.className = `toast ${type}`;
+    toast.innerHTML = `
+        <span class="toast-icon">${icon || (type === 'success' ? '✅' : type === 'error' ? '❌' : type === 'warning' ? '⚠️' : 'ℹ️')}</span>
+        <span class="toast-message">${message}</span>
+    `;
+
+    container.appendChild(toast);
+
+    // Auto remove after 3 seconds
+    setTimeout(() => {
+        toast.style.animation = 'toastOut 0.3s ease forwards';
+        setTimeout(() => toast.remove(), 300);
+    }, 3000);
+}
+
+function fillSenderFromStore() {
+    const settings = APP_STATE.settings;
     
-    // Note: For actual barcode scanning from images, use a library like ZXing
-    showToast('مسح الصور قيد التطوير 🚧', 'info');
+    document.getElementById('senderName').value = settings.storeName || '';
+    document.getElementById('senderPhone').value = settings.storePhone || '';
+    document.getElementById('senderCity').value = settings.defaultCity || 'cairo';
+    document.getElementById('senderAddress').value = settings.storeAddress || '';
+
+    showToast('تم ملء بيانات المرسل', 'success');
+}
+
+function clearForm() {
+    document.getElementById('waybillForm')?.reset();
+    document.getElementById('trackingNumber').value = '';
+    document.getElementById('barcodeSvg').innerHTML = '';
+    document.getElementById('barcodeNumber').textContent = '';
+}
+
+function saveAsDraft() {
+    const formData = getFormData();
+    if (!formData.receiverName) {
+        showToast('يرجى ملء بيانات المستلم على الأقل', 'warning');
+        return;
+    }
+
+    const draft = {
+        id: `draft_${Date.now()}`,
+        ...formData,
+        savedAt: new Date().toISOString()
+    };
+
+    APP_STATE.drafts.unshift(draft);
+    localStorage.setItem(APP_CONFIG.storageKeys.drafts, JSON.stringify(APP_STATE.drafts));
+
+    showToast('تم حفظ المسودة', 'success');
+    clearForm();
+}
+
+function printWaybill(shipmentId) {
+    const shipment = APP_STATE.shipments.find(s => s.id === shipmentId);
+    if (!shipment) return;
+
+    const printContent = document.getElementById('waybillPrintContent');
+    if (printContent) {
+        printContent.innerHTML = generateWaybillHTML(shipment);
+        printElement(printContent.parentElement);
+    }
+}
+
+function shareTracking(shipmentId) {
+    const shipment = APP_STATE.shipments.find(s => s.id === shipmentId);
+    if (!shipment) return;
+
+    const text = `تتبع شحنتك: ${shipment.trackingNumber}\nالحالة: ${getStatusLabel(shipment.status)}\nمن تطبيق شحنلي`;
+
+    if (navigator.share) {
+        navigator.share({
+            title: 'تتبع شحنة - شحنلي',
+            text: text
+        }).catch(console.error);
+    } else {
+        navigator.clipboard.writeText(text).then(() => {
+            showToast('تم نسخ معلومات الشحنة', 'success');
+        });
+    }
+}
+
+function generateWaybillHTML(shipment) {
+    return `
+        <div class="waybill-print-content">
+            <header class="print-header">
+                <h1>${APP_STATE.settings.storeName || 'شحنلي'}</h1>
+                <p>بوليصة شحن</p>
+            </header>
+            <div class="print-tracking">
+                <canvas id="printBarcodeCanvas"></canvas>
+                <p class="tracking-number">${shipment.trackingNumber}</p>
+            </div>
+            <div class="print-details">
+                <div class="print-section">
+                    <h3>المرسل إليه</h3>
+                    <p><strong>${shipment.receiverName}</strong></p>
+                    <p>${shipment.receiverPhone}</p>
+                    <p>${shipment.receiverArea}, ${getCityLabel(shipment.receiverCity)}</p>
+                    <p>${shipment.receiverAddress}</p>
+                </div>
+                <div class="print-section">
+                    <h3>بيانات الشحنة</h3>
+                    <p>التاريخ: ${formatDate(shipment.createdAt)}</p>
+                    <p>الحالة: ${getStatusLabel(shipment.status)}</p>
+                    ${shipment.codAmount ? `<p>الدفع عند الاستلام: ${shipment.codAmount} ج.م</p>` : ''}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function printElement(element) {
+    const printWindow = window.open('', '_blank');
+    printWindow.document.write(`
+        <!DOCTYPE html>
+        <html dir="rtl">
+        <head>
+            <title>طباعة - شحنلي</title>
+            <style>
+                body { font-family: Cairo, sans-serif; padding: 20px; direction: rtl; }
+                .print-header { text-align: center; margin-bottom: 20px; }
+                .print-tracking { text-align: center; margin: 20px 0; }
+                .tracking-number { font-size: 18px; font-weight: bold; letter-spacing: 2px; }
+                .print-details { display: flex; gap: 40px; justify-content: center; }
+                .print-section { flex: 1; }
+                .print-section h3 { border-bottom: 1px solid #ddd; padding-bottom: 5px; }
+                @media print { body { padding: 0; } }
+            </style>
+        </head>
+        <body>${element.innerHTML}</body>
+        </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
 }
 
 // ========================================
@@ -1578,362 +1824,231 @@ function scanBarcodeFromImage(event) {
 function exportAllData() {
     const data = {
         version: APP_CONFIG.version,
-        exportDate: new Date().toISOString(),
+        exportedAt: new Date().toISOString(),
         shipments: APP_STATE.shipments,
         customers: APP_STATE.customers,
         settings: APP_STATE.settings,
-        drafts: APP_STATE.drafts
+        drafts: APP_STATE.drafts,
+        inventory: typeof Inventory !== 'undefined' ? Inventory.exportData() : null
     };
-    
+
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `shipli-backup-${new Date().toISOString().split('T')[0]}.json`;
-    link.click();
-    
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `shipli-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
     URL.revokeObjectURL(url);
-    showToast('تم تصدير البيانات بنجاح 📤', 'success');
+
+    showToast('تم تصدير البيانات بنجاح', 'success');
 }
 
 function importData(event) {
     const file = event.target.files[0];
     if (!file) return;
-    
+
     const reader = new FileReader();
     reader.onload = function(e) {
         try {
             const data = JSON.parse(e.target.result);
             
-            if (confirm('سيتم استبدال جميع البيانات الحالية. هل أنت متأكد؟')) {
-                if (data.shipments) APP_STATE.shipments = data.shipments;
-                if (data.customers) APP_STATE.customers = data.customers;
-                if (data.settings) {
-                    APP_STATE.settings = data.settings;
-                    applySettings();
-                }
-                if (data.drafts) APP_STATE.drafts = data.drafts;
-                
-                saveAllToStorage();
-                
-                // Sync with Firebase
-                syncDataWithFirebase();
-                
-                updateDashboardStats();
-                renderRecentShipments();
-                renderShipmentsTable();
-                renderCustomersGrid();
-                
-                showToast('تم استيراد البيانات بنجاح 📥', 'success');
+            if (data.shipments) APP_STATE.shipments = data.shipments;
+            if (data.customers) APP_STATE.customers = data.customers;
+            if (data.settings) {
+                APP_STATE.settings = data.settings;
+                applySettings();
             }
-        } catch (error) {
-            console.error('Import error:', error);
+            if (data.drafts) APP_STATE.drafts = data.drafts;
+            if (data.inventory && typeof Inventory !== 'undefined') {
+                Inventory.importData(data.inventory);
+            }
+
+            // Save all
+            localStorage.setItem(APP_CONFIG.storageKeys.shipments, JSON.stringify(APP_STATE.shipments));
+            localStorage.setItem(APP_CONFIG.storageKeys.customers, JSON.stringify(APP_STATE.customers));
+            localStorage.setItem(APP_CONFIG.storageKeys.settings, JSON.stringify(APP_STATE.settings));
+            localStorage.setItem(APP_CONFIG.storageKeys.drafts, JSON.stringify(APP_STATE.drafts));
+
+            // Refresh UI
+            renderShipmentsTable();
+            renderCustomersGrid();
+            updateDashboardStats();
+
+            showToast('تم استيراد البيانات بنجاح', 'success');
+        } catch (err) {
+            console.error('Import error:', err);
             showToast('خطأ في قراءة الملف', 'error');
         }
     };
-    
     reader.readAsText(file);
-    event.target.value = ''; // Reset input
 }
 
 function confirmClearData() {
-    if (confirm('⚠️ هل أنت متأكد من مسح جميع البيانات؟\n\nهذا الإجراء لا يمكن التراجع عنه!')) {
-        if (confirm('تأكيد أخير: سيتم حذف كل الشحنات والعملاء والإعدادات')) {
-            APP_STATE.shipments = [];
-            APP_STATE.customers = [];
-            APP_STATE.drafts = [];
-            APP_STATE.settings = getDefaultSettings();
-            
-            saveAllToStorage();
-            applySettings();
-            
-            updateDashboardStats();
-            renderRecentShipments();
-            renderShipmentsTable();
-            renderCustomersGrid();
-            
-            showToast('تم مسح جميع البيانات 🗑️', 'info');
-        }
+    if (confirm('هل أنت متأكد من مسح جميع البيانات؟ لا يمكن التراجع عن هذا الإجراء!')) {
+        localStorage.clear();
+        location.reload();
     }
-}
-
-function exportData() {
-    exportAllData();
-}
-
-function printReport() {
-    window.print();
-}
-
-function checkForUpdates() {
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then(registrations => {
-            registrations.forEach(registration => {
-                registration.update();
-            });
-        });
-    }
-    showToast('جاري التحقق من التحديثات... 🔄', 'info');
 }
 
 // ========================================
-// Firebase Operations
+// PWA Installation
+// ========================================
+
+function initializePWA() {
+    // Register service worker
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/sw.js')
+            .then(registration => {
+                console.log('SW registered:', registration.scope);
+            })
+            .catch(error => {
+                console.log('SW registration failed:', error);
+            });
+    }
+}
+
+function showInstallBanner() {
+    const banner = document.getElementById('installBanner');
+    if (banner) banner.classList.remove('hidden');
+}
+
+document.getElementById('installBtn')?.addEventListener('click', async () => {
+    if (APP_STATE.deferredInstallPrompt) {
+        APP_STATE.deferredInstallPrompt.prompt();
+        const { outcome } = await APP_STATE.deferredInstallPrompt.userChoice;
+        
+        if (outcome === 'accepted') {
+            showToast('تم تثبت التطبيق بنجاح!', 'success');
+        }
+        
+        APP_STATE.deferredInstallPrompt = null;
+        document.getElementById('installBanner')?.classList.add('hidden');
+    }
+});
+
+document.getElementById('dismissInstall')?.addEventListener('click', () => {
+    document.getElementById('installBanner')?.classList.add('hidden');
+});
+
+// ========================================
+// Firebase Sync
 // ========================================
 
 function syncDataWithFirebase() {
-    if (!APP_STATE.firebaseInitialized || !auth.currentUser) return;
+    if (!db || !auth.currentUser) return;
+
+    const userId = auth.currentUser.uid;
+
+    // Sync shipments
+    db.ref(`users/${userId}/shipments`).set(APP_STATE.shipments);
+    
+    // Sync customers
+    db.ref(`users/${userId}/customers`).set(APP_STATE.customers);
+    
+    // Listen for remote changes
+    db.ref(`users/${userId}/shipments`).on('value', (snapshot) => {
+        const data = snapshot.val();
+        if (data && Array.isArray(data)) {
+            APP_STATE.shipments = data;
+            renderShipmentsTable();
+            updateDashboardStats();
+        }
+    });
+}
+
+function syncShipmentToFirebase(shipment) {
+    if (!db || !auth.currentUser) return;
     
     const userId = auth.currentUser.uid;
-    
-    // Upload local data to Firebase
-    const userRef = db.ref(`users/${userId}`);
-    
-    userRef.set({
-        shipments: APP_STATE.shipments,
-        customers: APP_STATE.customers,
-        settings: APP_STATE.settings,
-        lastSync: new Date().toISOString()
-    }).then(() => {
-        console.log('✅ Data synced with Firebase');
-    }).catch(error => {
-        console.error('Sync error:', error);
-    });
-}
-
-function saveShipmentToFirebase(shipment) {
-    if (!APP_STATE.firebaseInitialized || !auth.currentUser) return;
-    
-    db.ref(`shipments/${shipment.id}`).set(shipment)
-        .then(() => console.log('💾 Shipment saved to Firebase'))
-        .catch(err => console.error('Save error:', err));
-}
-
-function updateShipmentInFirebase(shipment) {
-    if (!APP_STATE.firebaseInitialized || !auth.currentUser) return;
-    
-    db.ref(`shipments/${shipment.id}`).update(shipment)
-        .then(() => console.log('📝 Shipment updated in Firebase'))
-        .catch(err => console.error('Update error:', err));
-}
-
-function deleteShipmentFromFirebase(shipmentId) {
-    if (!APP_STATE.firebaseInitialized || !auth.currentUser) return;
-    
-    db.ref(`shipments/${shipmentId}`).remove()
-        .then(() => console.log('🗑️ Shipment deleted from Firebase'))
-        .catch(err => console.error('Delete error:', err));
-}
-
-function saveCustomerToFirebase(customer) {
-    if (!APP_STATE.firebaseInitialized || !auth.currentUser) return;
-    
-    db.ref(`crm/${customer.id}`).set(customer)
-        .then(() => console.log('💾 Customer saved to Firebase'))
-        .catch(err => console.error('Save error:', err));
-}
-
-function deleteCustomerFromFirebase(customerId) {
-    if (!APP_STATE.firebaseInitialized || !auth.currentUser) return;
-    
-    db.ref(`crm/${customerId}`).remove()
-        .then(() => console.log('🗑️ Customer deleted from Firebase'))
-        .catch(err => console.error('Delete error:', err));
-}
-
-function saveSettingsToFirebase() {
-    if (!APP_STATE.firebaseInitialized || !auth.currentUser) return;
-    
-    const userId = auth.currentUser.uid;
-    db.ref(`users/${userId}/settings`).set(APP_STATE.settings)
-        .then(() => console.log('💾 Settings saved to Firebase'))
-        .catch(err => console.error('Save error:', err));
+    db.ref(`users/${userId}/shipments/${shipment.id}`).set(shipment);
 }
 
 // ========================================
-// Local Storage Operations
+// Online Status
 // ========================================
-
-function saveShipmentsToStorage() {
-    localStorage.setItem(APP_CONFIG.storageKeys.shipments, JSON.stringify(APP_STATE.shipments));
-}
-
-function saveCustomersToStorage() {
-    localStorage.setItem(APP_CONFIG.storageKeys.customers, JSON.stringify(APP_STATE.customers));
-}
-
-function saveAllToStorage() {
-    localStorage.setItem(APP_CONFIG.storageKeys.shipments, JSON.stringify(APP_STATE.shipments));
-    localStorage.setItem(APP_CONFIG.storageKeys.customers, JSON.stringify(APP_STATE.customers));
-    localStorage.setItem(APP_CONFIG.storageKeys.settings, JSON.stringify(APP_STATE.settings));
-    localStorage.setItem(APP_CONFIG.storageKeys.drafts, JSON.stringify(APP_STATE.drafts));
-}
-
-// ========================================
-// Utility Functions
-// ========================================
-
-function generateUniqueId() {
-    return Date.now().toString(36) + Math.random().toString(36).substr(2);
-}
-
-function formatDate(dateString) {
-    if (!dateString) return '—';
-    const date = new Date(dateString);
-    return date.toLocaleDateString('ar-EG', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric'
-    });
-}
-
-function formatDateTime(dateString) {
-    if (!dateString) return '—';
-    const date = new Date(dateString);
-    return date.toLocaleString('ar-EG', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-    });
-}
-
-function getStatusText(status) {
-    const statusMap = {
-        pending: 'قيد الانتظار',
-        picked: 'تم الاستلام',
-        in_transit: 'في الطريق',
-        delivered: 'تم التسليم',
-        returned: 'مرتجع',
-        cancelled: 'ملغي'
-    };
-    return statusMap[status] || status;
-}
-
-function getStatusUpdateMessage(status) {
-    const messages = {
-        pending: 'تم إنشاء الشحنة',
-        picked: 'تم استلام الشحنة من المرسل',
-        in_transit: 'الشحنة في الطريق للتوصيل',
-        delivered: 'تم تسليم الشحنة بنجاح',
-        returned: 'تم إرجاع الشحنة',
-        cancelled: 'تم إلغاء الشحنة'
-    };
-    return messages[status] || 'تحديث الحالة';
-}
-
-function getCityName(cityCode) {
-    const cities = {
-        cairo: 'القاهرة',
-        alexandria: 'الإسكندرية',
-        giza: 'الجيزة',
-        mansoura: 'المنصورة',
-        tanta: 'طنطا',
-        ismailia: 'الإسماعيلية',
-        suez: 'السويس',
-        luxor: 'الأقصر',
-        aswan: 'أسوان',
-        other: 'أخرى'
-    };
-    return cities[cityCode] || cityCode || '—';
-}
-
-function getShipmentTypeName(type) {
-    const types = {
-        delivery: 'توصيل',
-        exchange: 'استبدال',
-        return: 'مرتجع',
-        cash_on_delivery: 'الدفع عند الاستلام'
-    };
-    return types[type] || type || '—';
-}
-
-function getPackageTypeName(type) {
-    const types = {
-        envelope: 'مظروف',
-        box: 'صندوق صغير',
-        large_box: 'صندوق كبير',
-        palette: 'بالتة'
-    };
-    return types[type] || type || '—';
-}
 
 function checkOnlineStatus() {
-    const statusEl = document.getElementById('offlineStatus');
-    if (statusEl) {
-        statusEl.textContent = APP_STATE.isOnline ? 'متصل' : 'غير متصل';
-        statusEl.style.color = APP_STATE.isOnline ? 'var(--success-500)' : 'var(--danger-500)';
+    const offlineStatus = document.getElementById('offlineStatus');
+    if (offlineStatus) {
+        offlineStatus.textContent = APP_STATE.isOnline ? 'متصل' : 'غير متصل';
+        offlineStatus.className = APP_STATE.isOnline ? '' : 'text-danger';
     }
 }
 
-function handleOnline() {
-    APP_STATE.isOnline = true;
-    checkOnlineStatus();
-    showToast('تم استعادة الاتصال بالإنترنت 🌐', 'success');
-    syncDataWithFirebase();
-}
+// ========================================
+// Helper: Request notification permission
+// ========================================
 
-function handleOffline() {
-    APP_STATE.isOnline = false;
-    checkOnlineStatus();
-    showToast('أنت الآن في وضع عدم الاتصال 📴', 'warning');
+function requestNotificationPermission() {
+    if (typeof Notifications !== 'undefined') {
+        Notifications.requestPermission();
+    }
 }
 
 // ========================================
-// Toast Notifications
+// Helper: Check for updates
 // ========================================
 
-function showToast(message, type = 'info', duration = 3000) {
-    const container = document.getElementById('toastContainer');
-    
-    const icons = {
-        success: '✅',
-        error: '❌',
-        warning: '⚠️',
-        info: 'ℹ️'
-    };
-    
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    toast.innerHTML = `
-        <span class="toast-icon">${icons[type]}</span>
-        <span class="toast-message">${message}</span>
-        <button class="toast-close" onclick="this.parentElement.remove()">✕</button>
-    `;
-    
-    container.appendChild(toast);
-    
-    // Auto remove
-    setTimeout(() => {
-        toast.classList.add('removing');
-        setTimeout(() => toast.remove(), 300);
-    }, duration);
+function checkForUpdates() {
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.getRegistration().then(reg => {
+            if (reg) {
+                reg.update();
+                showToast('جاري التحقق من التحديثات...', 'info');
+            }
+        });
+    }
 }
 
-// ========================================
-// Loading Overlay
-// ========================================
-
-function showLoading(message = 'جاري التحميل...') {
-    const overlay = document.getElementById('loadingOverlay');
-    overlay.querySelector('p').textContent = message;
-    overlay.classList.remove('hidden');
-}
-
-function hideLoading() {
-    document.getElementById('loadingOverlay').classList.add('hidden');
-}
-
-// ========================================
-// Console Welcome Message
-// ========================================
-
-console.log(
-    `%c🚀 ${APP_CONFIG.name} v${APP_CONFIG.version}`,
-    'background: linear-gradient(135deg, #1e40af, #3b82f6); color: white; padding: 10px 20px; border-radius: 8px; font-size: 16px; font-weight: bold;'
-);
-console.log(
-    `%cنظام إدارة الشحن الاحترافي | Professional Shipping Management`,
-    'color: #6b7280; font-size: 12px;'
-);
+// Make functions globally available
+window.switchTab = switchTab;
+window.showModal = showModal;
+window.closeModal = closeModal;
+window.toggleNotificationsPanel = toggleNotificationsPanel;
+window.showToast = showToast;
+window.showLoading = showLoading;
+window.filterProductsByCategory = filterProductsByCategory;
+window.filterNotifications = filterNotifications;
+window.trackShipment = trackShipment;
+window.trackWithBosta = trackWithBosta;
+window.refreshBostaTracking = refreshBostaTracking;
+window.openBarcodeScanner = openBarcodeScanner;
+window.closeScanner = closeScanner;
+window.toggleCamera = toggleCamera;
+window.scanBarcodeForTracking = scanBarcodeForTracking;
+window.scanBarcodeFromImage = scanBarcodeFromImage;
+window.showCustomerSearch = showCustomerSearch;
+window.searchCustomers = searchCustomers;
+window.showAddCustomerModal = showAddCustomerModal;
+window.saveCustomer = saveCustomer;
+window.selectCustomer = selectCustomer;
+window.deleteCustomer = deleteCustomer;
+window.showAddProductModal = showAddProductModal;
+window.saveProduct = saveProduct;
+window.showStockAdjustmentModal = showStockAdjustmentModal;
+window.adjustStock = adjustStock;
+window.generateTrackingNumber = generateTrackingNumber;
+window.printBarcode = printBarcode;
+window.downloadBarcode = downloadBarcode;
+window.fillSenderFromStore = fillSenderFromStore;
+window.clearForm = clearForm;
+window.saveAsDraft = saveAsDraft;
+window.printWaybill = printWaybill;
+window.shareTracking = shareTracking;
+window.saveStoreSettings = saveStoreSettings;
+window.saveNotificationSettings = saveNotificationSettings;
+window.saveBostaSettings = saveBostaSettings;
+window.testBostaConnection = testBostaConnection;
+window.simulateBostaNotification = simulateBostaNotification;
+window.testBostaWebhook = testBostaWebhook;
+window.copyWebhookUrl = copyWebhookUrl;
+window.showBotaWebhookInstructions = showBotaWebhookInstructions;
+window.handleLogoUpload = handleLogoUpload;
+window.removeLogo = removeLogo;
+window.exportAllData = exportAllData;
+window.importData = importData;
+window.confirmClearData = confirmClearData;
+window.requestNotificationPermission = requestNotificationPermission;
+window.checkForUpdates = checkForUpdates;
+window.showShipmentDetails = showShipmentDetails;
+window.deleteShipment = deleteShipment;
