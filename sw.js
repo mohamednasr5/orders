@@ -141,7 +141,8 @@ self.addEventListener('fetch', (event) => {
 
 // ========================================
 // Bosta Webhook Handler ⭐
-// Receives webhooks from Bosta and forwards to app
+// Receives webhooks from Bosta and forwards to app + Firebase
+// Based on: https://docs.bosta.co/docs/how-to/get-delivery-status-via-webhook
 // ========================================
 
 async function handleBostaWebhook(request) {
@@ -153,14 +154,21 @@ async function handleBostaWebhook(request) {
         
         // Store webhook data for when app is online
         const webhookData = {
-            id: `webhook_${Date.now()}`,
+            id: `webhook_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
             payload: requestData,
             receivedAt: new Date().toISOString(),
-            processed: false
+            processed: false,
+            // Add metadata for Firebase
+            trackingNumber: requestData.trackingNumber || requestData.tracking_key || '',
+            deliveryId: requestData.deliveryId || requestData._id || '',
+            eventType: requestData.type || requestData.status || requestData.eventType || 'UNKNOWN'
         };
 
-        // Store in IndexedDB or cache for later processing
+        // Store in cache for later processing
         await storeWebhookForProcessing(webhookData);
+
+        // Try to send to Firebase Realtime Database directly
+        await sendWebhookToFirebase(webhookData);
 
         // Try to notify all open clients immediately
         const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
@@ -169,9 +177,10 @@ async function handleBostaWebhook(request) {
 
         for (const client of clients) {
             client.postMessage({
-                type: 'WEBHOOK_RECEIVED',
+                type: 'BOSTA_WEBHOOK_RECEIVED',
                 payload: requestData,
-                webhookId: webhookData.id
+                webhookId: webhookData.id,
+                timestamp: new Date().toISOString()
             });
             notified = true;
         }
@@ -181,19 +190,58 @@ async function handleBostaWebhook(request) {
             await showBostaPushNotification(requestData);
         }
 
-        // Return success response to Bosta
-        return new Response(JSON.stringify({ success: true, id: webhookData.id }), {
+        // Return success response to Bosta (important - Bosta expects 200)
+        return new Response(JSON.stringify({ 
+            success: true, 
+            id: webhookData.id,
+            message: 'Webhook received successfully',
+            timestamp: new Date().toISOString()
+        }), {
             status: 200,
             headers: { 'Content-Type': 'application/json' }
         });
 
     } catch (error) {
-        console.error('[SW] Webhook processing error:', error);
+        console.error('[SW] ❌ Webhook processing error:', error);
         
-        return new Response(JSON.stringify({ error: error.message }), {
+        // Still return 200 to prevent Bosta from retrying too aggressively
+        return new Response(JSON.stringify({ 
+            error: error.message,
+            timestamp: new Date().toISOString()
+        }), {
             status: 500,
             headers: { 'Content-Type': 'application/json' }
         });
+    }
+}
+
+/**
+ * Send Webhook Data to Firebase Database
+ * Stores events at /bosta_events/{eventId}
+ */
+async function sendWebhookToFirebase(webhookData) {
+    try {
+        // Firebase database URL from config or default
+        const firebaseDbUrl = 'https://orders-8f568-default-rtdb.firebaseio.com';
+        
+        const response = await fetch(`${firebaseDbUrl}/bosta_events/${webhookData.id}.json`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                ...webhookData,
+                source: 'service-worker',
+                processedAt: new Date().toISOString()
+            })
+        });
+
+        if (response.ok) {
+            console.log('[SW] 💾 Webhook saved to Firebase:', webhookData.id);
+        } else {
+            console.warn('[SW] ⚠️ Failed to save to Firebase:', await response.text());
+        }
+    } catch (error) {
+        console.log('[SW] ℹ️ Firebase not available for webhook storage (offline?)');
+        // Don't fail - webhook is already cached locally
     }
 }
 
