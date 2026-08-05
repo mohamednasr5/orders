@@ -1268,18 +1268,30 @@ function downloadBarcode() {
 function loadSettingsToForm() {
     const settings = APP_STATE.settings;
     
-    document.getElementById('settingsStoreName').value = settings.storeName || '';
-    document.getElementById('settingsStorePhone').value = settings.storePhone || '';
-    document.getElementById('settingsStoreEmail').value = settings.storeEmail || '';
-    document.getElementById('settingsStoreAddress').value = settings.storeAddress || '';
-    document.getElementById('shippingCompany').value = settings.shippingCompany || 'bosta';
-    document.getElementById('defaultCity').value = settings.defaultCity || 'cairo';
-    document.getElementById('defaultPackageType').value = settings.defaultPackageType || 'box';
-    document.getElementById('enableBrowserNotifications').checked = settings.enableBrowserNotifications !== false;
-    document.getElementById('enableSoundNotifications').checked = settings.enableSoundNotifications !== false;
-    document.getElementById('enableStockAlerts').checked = settings.enableStockAlerts !== false;
-    document.getElementById('enableBostaNotifications').checked = settings.enableBostaNotifications !== false;
-    document.getElementById('minStockThreshold').value = settings.minStockThreshold || 5;
+    // Helper function to safely set element value
+    const safeSetValue = (elementId, defaultValue) => {
+        const el = document.getElementById(elementId);
+        if (el) el.value = settings[elementId] || defaultValue;
+    };
+    
+    // Helper function to safely set checkbox
+    const safeSetChecked = (elementId, defaultVal) => {
+        const el = document.getElementById(elementId);
+        if (el) el.checked = settings[elementId] !== false;
+    };
+    
+    safeSetValue('settingsStoreName', '');
+    safeSetValue('settingsStorePhone', '');
+    safeSetValue('settingsStoreEmail', '');
+    safeSetValue('settingsStoreAddress', '');
+    safeSetValue('shippingCompany', 'bosta');  // Will be added to HTML or skipped
+    safeSetValue('defaultCity', 'cairo');       // Will be added to HTML or skipped
+    safeSetValue('defaultPackageType', 'box');   // Will be added to HTML or skipped
+    safeSetChecked('enableBrowserNotifications');
+    safeSetChecked('enableSoundNotifications');
+    safeSetChecked('enableStockAlerts');
+    safeSetChecked('enableBostaNotifications');
+    safeSetValue('minStockThreshold', '5');
     
     // Load logo preview
     if (settings.storeLogo) {
@@ -1909,10 +1921,15 @@ function confirmClearData() {
 
 function initializePWA() {
     // Register service worker
+    // Use relative path for GitHub Pages compatibility
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/sw.js')
+        const swPath = (window.location.pathname.includes('/shipping-pwa/') || window.location.hostname === 'mohamednasr5.github.io') 
+            ? './sw.js' 
+            : '/sw.js';
+            
+        navigator.serviceWorker.register(swPath)
             .then(registration => {
-                console.log('SW registered:', registration.scope);
+                console.log('✅ SW registered:', registration.scope);
             })
             .catch(error => {
                 console.log('SW registration failed:', error);

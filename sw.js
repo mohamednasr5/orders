@@ -17,26 +17,27 @@ const STATIC_CACHE = 'shili-static-v3';
 const DYNAMIC_CACHE = 'shili-dynamic-v3';
 
 // Assets to cache immediately on install
+// Use relative paths for GitHub Pages compatibility
 const PRECACHE_URLS = [
-    '/',
-    '/index.html',
-    '/styles.css',
-    '/app.js',
-    '/manifest.json',
-    // Modules
-    '/js/bosta-integration.js',
-    '/js/notifications.js',
-    '/js/inventory.js',
-    '/js/webhook-handler.js',
+    './',
+    './index.html',
+    './styles.css',
+    './app.js',
+    './manifest.json',
+    // Modules (JS files)
+    './js/bosta-integration.js',
+    './js/notifications.js',
+    './js/inventory.js',
+    './js/webhook-handler.js',
     // Icons
-    '/icons/icon-72.png',
-    '/icons/icon-96.png',
-    '/icons/icon-128.png',
-    '/icons/icon-144.png',
-    '/icons/icon-152.png',
-    '/icons/icon-192.png',
-    '/icons/icon-384.png',
-    '/icons/icon-512.png'
+    './icons/icon-72.png',
+    './icons/icon-96.png',
+    './icons/icon-128.png',
+    './icons/icon-144.png',
+    './icons/icon-152.png',
+    './icons/icon-192.png',
+    './icons/icon-384.png',
+    './icons/icon-512.png'
 ];
 
 // External resources to cache
